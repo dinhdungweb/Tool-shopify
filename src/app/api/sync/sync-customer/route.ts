@@ -1,0 +1,135 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { shopifyAPI } from "@/lib/shopify-api";
+import { nhanhAPI } from "@/lib/nhanh-api";
+import { SyncStatus, SyncAction } from "@prisma/client";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * POST /api/sync/sync-customer
+ * Sync a single customer's total spent to Shopify
+ */
+export async function POST(request: NextRequest) {
+  let mappingId: string | undefined;
+  
+  try {
+    const body = await request.json();
+    mappingId = body.mappingId;
+
+    if (!mappingId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "mappingId is required",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Get mapping
+    const mapping = await prisma.customerMapping.findUnique({
+      where: { id: mappingId },
+    });
+
+    if (!mapping) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Mapping not found",
+        },
+        { status: 404 }
+      );
+    }
+
+    if (!mapping.shopifyCustomerId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No Shopify customer mapped",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Get latest total spent from Nhanh
+    const totalSpent = await nhanhAPI.getCustomerTotalSpent(
+      mapping.nhanhCustomerId
+    );
+
+    // Update Shopify metafield
+    await shopifyAPI.syncCustomerTotalSpent(
+      mapping.shopifyCustomerId,
+      totalSpent
+    );
+
+    // Update mapping
+    const updatedMapping = await prisma.customerMapping.update({
+      where: { id: mappingId },
+      data: {
+        nhanhTotalSpent: totalSpent,
+        syncStatus: SyncStatus.SYNCED,
+        lastSyncedAt: new Date(),
+        syncError: null,
+        syncAttempts: { increment: 1 },
+      },
+    });
+
+    // Create sync log
+    await prisma.syncLog.create({
+      data: {
+        mappingId: mapping.id,
+        action: SyncAction.MANUAL_SYNC,
+        status: SyncStatus.SYNCED,
+        message: `Synced total spent: ${totalSpent}`,
+        metadata: {
+          totalSpent,
+          shopifyCustomerId: mapping.shopifyCustomerId,
+        },
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: updatedMapping,
+      message: "Customer synced successfully",
+    });
+  } catch (error: any) {
+    console.error("Error syncing customer:", error);
+
+    // Update mapping with error
+    if (mappingId) {
+      try {
+        await prisma.customerMapping.update({
+          where: { id: mappingId },
+          data: {
+            syncStatus: SyncStatus.FAILED,
+            syncError: error.message,
+            syncAttempts: { increment: 1 },
+          },
+        });
+
+        // Create error log
+        await prisma.syncLog.create({
+          data: {
+            mappingId: mappingId,
+            action: SyncAction.MANUAL_SYNC,
+            status: SyncStatus.FAILED,
+            message: "Sync failed",
+            errorDetail: error.message,
+          },
+        });
+      } catch (logError) {
+        console.error("Error logging sync failure:", logError);
+      }
+    }
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || "Failed to sync customer",
+      },
+      { status: 500 }
+    );
+  }
+}

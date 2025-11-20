@@ -1,0 +1,7 @@
+version: "2"
+authtoken: 35drCFpSnVRjfitKxQykZu1nW0c_2KMpxSUprHuvd1bPtKdzh
+tunnels:
+  webhook:
+    proto: http
+    addr: 3000
+    inspect: false

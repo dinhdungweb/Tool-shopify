@@ -1,0 +1,133 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model NhanhCustomer {
+  id        String   @id // Nhanh customer ID
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  name       String
+  phone      String?
+  email      String?
+  totalSpent Decimal  @default(0) @db.Decimal(15, 2)
+  
+  // Additional info from Nhanh API
+  address    String?  @db.Text
+  city       String?
+  district   String?
+  ward       String?
+  
+  // Metadata
+  lastPulledAt DateTime @default(now())
+
+  // Relation to mapping
+  mapping CustomerMapping?
+
+  @@index([name])
+  @@index([phone])
+  @@index([email])
+  @@map("nhanh_customers")
+}
+
+model CustomerMapping {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Nhanh.vn Customer Info
+  nhanhCustomerId    String         @unique
+  nhanhCustomer      NhanhCustomer? @relation(fields: [nhanhCustomerId], references: [id], onDelete: Cascade)
+  nhanhCustomerName  String
+  nhanhCustomerPhone String?
+  nhanhCustomerEmail String?
+  nhanhTotalSpent    Decimal        @default(0) @db.Decimal(15, 2)
+
+  // Shopify Customer Info
+  shopifyCustomerId    String?
+  shopifyCustomerEmail String?
+  shopifyCustomerName  String?
+
+  // Sync Status
+  syncStatus    SyncStatus @default(UNMAPPED)
+  lastSyncedAt  DateTime?
+  syncError     String?
+  syncAttempts  Int        @default(0)
+
+  // Sync History
+  syncLogs SyncLog[]
+
+  @@index([nhanhCustomerId])
+  @@index([shopifyCustomerId])
+  @@index([syncStatus])
+  @@map("customer_mappings")
+}
+
+model AutoSyncConfig {
+  id        String   @id @default("global") // Only one global config
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enabled  Boolean @default(false)
+  schedule String  @default("0 */6 * * *") // Cron expression
+
+  @@map("auto_sync_config")
+}
+
+model SyncLog {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  mappingId String
+  mapping   CustomerMapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+
+  action      SyncAction
+  status      SyncStatus
+  message     String?
+  errorDetail String?    @db.Text
+  metadata    Json?
+
+  @@index([mappingId])
+  @@index([createdAt])
+  @@map("sync_logs")
+}
+
+model WebhookLog {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  source      String // "nhanh" or "shopify"
+  eventType   String
+  payload     Json
+  processed   Boolean  @default(false)
+  processedAt DateTime?
+  error       String?  @db.Text
+
+  @@index([source])
+  @@index([processed])
+  @@index([createdAt])
+  @@map("webhook_logs")
+}
+
+enum SyncStatus {
+  UNMAPPED
+  PENDING
+  SYNCED
+  FAILED
+}
+
+enum SyncAction {
+  MANUAL_MAPPING
+  MANUAL_SYNC
+  AUTO_SYNC
+  WEBHOOK_SYNC
+  BULK_SYNC
+}
