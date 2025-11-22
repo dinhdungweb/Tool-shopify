@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { nhanhClient, syncClient } from "@/lib/api-client";
+import { nhanhClient, syncClient, shopifyClient } from "@/lib/api-client";
 import { NhanhCustomer } from "@/types/nhanh";
 import { CustomerMappingData, SyncStatus } from "@/types/mapping";
 import SyncStatusBadge from "./SyncStatusBadge";
@@ -156,8 +156,28 @@ export default function CustomerSyncTable() {
     }
   }
 
+  async function handlePullShopifyCustomers() {
+    if (!confirm("Pull all Shopify customers to local database?\n\nThis will fetch all customers from Shopify and store them locally for faster matching.")) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await shopifyClient.pullCustomers();
+      
+      alert(
+        `Pull completed!\n\nTotal: ${result.total}\nCreated: ${result.created}\nUpdated: ${result.updated}\nFailed: ${result.failed}`
+      );
+    } catch (error: any) {
+      console.error("Error pulling Shopify customers:", error);
+      alert("Failed to pull Shopify customers: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleAutoMatch() {
-    if (!confirm("Auto-match unmapped customers by phone number?\n\nThis will search Shopify for customers with matching phone numbers and create mappings automatically.")) {
+    if (!confirm("Auto-match unmapped customers by phone number?\n\nThis will search local Shopify customers database for matching phone numbers and create mappings automatically.")) {
       return;
     }
 
@@ -330,6 +350,20 @@ export default function CustomerSyncTable() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
                         Refresh
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          handlePullShopifyCustomers();
+                          setMoreActionsOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Pull Shopify Customers
                       </button>
 
                       <button

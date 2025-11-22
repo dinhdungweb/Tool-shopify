@@ -96,6 +96,9 @@ class ShopifyAPI {
               amountSpent {
                 amount
               }
+              defaultAddress {
+                phone
+              }
               metafields(first: 10) {
                 edges {
                   node {
@@ -259,12 +262,15 @@ class ShopifyAPI {
    * Format customer data from GraphQL response
    */
   private formatCustomer(node: any): ShopifyCustomer {
+    // Use phone from customer, fallback to defaultAddress phone
+    const phone = node.phone || node.defaultAddress?.phone || undefined;
+    
     return {
       id: node.id,
       email: node.email || "",
       firstName: node.firstName || "",
       lastName: node.lastName || "",
-      phone: node.phone || undefined,
+      phone: phone,
       totalSpent: node.amountSpent?.amount || "0",
       ordersCount: node.numberOfOrders || 0,
       createdAt: node.createdAt,
@@ -282,10 +288,16 @@ class ShopifyAPI {
   /**
    * Get all customers (paginated)
    */
-  async getAllCustomers(limit: number = 50): Promise<ShopifyCustomer[]> {
+  async getAllCustomers(limit: number = 50, cursor?: string): Promise<{
+    customers: ShopifyCustomer[];
+    pageInfo: {
+      hasNextPage: boolean;
+      endCursor: string | null;
+    };
+  }> {
     const graphqlQuery = `
-      query getCustomers($first: Int!) {
-        customers(first: $first) {
+      query getCustomers($first: Int!, $after: String) {
+        customers(first: $first, after: $after) {
           edges {
             node {
               id
@@ -299,7 +311,15 @@ class ShopifyAPI {
               amountSpent {
                 amount
               }
+              defaultAddress {
+                phone
+              }
             }
+            cursor
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
           }
         }
       }
@@ -309,11 +329,22 @@ class ShopifyAPI {
       customers: {
         edges: Array<{
           node: any;
+          cursor: string;
         }>;
+        pageInfo: {
+          hasNextPage: boolean;
+          endCursor: string;
+        };
       };
-    }>(graphqlQuery, { first: limit });
+    }>(graphqlQuery, { first: limit, after: cursor || null });
 
-    return data.customers.edges.map((edge) => this.formatCustomer(edge.node));
+    return {
+      customers: data.customers.edges.map((edge) => this.formatCustomer(edge.node)),
+      pageInfo: {
+        hasNextPage: data.customers.pageInfo.hasNextPage,
+        endCursor: data.customers.pageInfo.endCursor,
+      },
+    };
   }
 }
 

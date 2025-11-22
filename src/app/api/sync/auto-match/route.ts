@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { shopifyAPI } from "@/lib/shopify-api";
 import { SyncStatus } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +18,7 @@ export async function POST(request: NextRequest) {
         mapping: null,
         phone: { not: null },
       },
-      take: 100, // Limit to avoid timeout
+      // No limit - process all unmapped customers
     });
 
     const results = {
@@ -30,6 +29,15 @@ export async function POST(request: NextRequest) {
       details: [] as any[],
     };
 
+    console.log(`Starting auto-match for ${unmappedCustomers.length} unmapped customers...`);
+
+    // Sample first 5 customers for debugging
+    if (unmappedCustomers.length > 0) {
+      console.log("Sample Nhanh customer phones:", unmappedCustomers.slice(0, 5).map(c => c.phone));
+      const sampleShopify = await prisma.shopifyCustomer.findMany({ take: 5, where: { phone: { not: null } } });
+      console.log("Sample Shopify customer phones:", sampleShopify.map(c => c.phone));
+    }
+
     for (const customer of unmappedCustomers) {
       if (!customer.phone) {
         results.skipped++;
@@ -37,13 +45,54 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        // Normalize phone number (remove spaces, dashes, etc.)
-        const normalizedPhone = customer.phone.replace(/[\s\-\(\)]/g, "");
-
-        // Search Shopify for customer with this phone
-        const shopifyCustomers = await shopifyAPI.searchCustomers({
-          phone: normalizedPhone,
+        // Normalize phone number (remove spaces, dashes, parentheses, +, etc.)
+        const normalizedPhone = customer.phone.replace(/[\s\-\(\)\+]/g, "");
+        
+        // Try multiple search strategies
+        // 1. Exact match on normalized phone
+        let shopifyCustomers = await prisma.shopifyCustomer.findMany({
+          where: {
+            phone: normalizedPhone,
+          },
         });
+
+        // 2. If no exact match, try contains search
+        if (shopifyCustomers.length === 0) {
+          shopifyCustomers = await prisma.shopifyCustomer.findMany({
+            where: {
+              phone: {
+                contains: normalizedPhone,
+                mode: "insensitive",
+              },
+            },
+          });
+        }
+
+        // 3. If still no match and phone starts with 0, try with +84
+        if (shopifyCustomers.length === 0 && normalizedPhone.startsWith("0")) {
+          const phoneWith84 = "+84" + normalizedPhone.substring(1);
+          shopifyCustomers = await prisma.shopifyCustomer.findMany({
+            where: {
+              phone: {
+                contains: phoneWith84,
+                mode: "insensitive",
+              },
+            },
+          });
+        }
+
+        // 4. If still no match and phone starts with +84, try with 0
+        if (shopifyCustomers.length === 0 && normalizedPhone.startsWith("+84")) {
+          const phoneWith0 = "0" + normalizedPhone.substring(3);
+          shopifyCustomers = await prisma.shopifyCustomer.findMany({
+            where: {
+              phone: {
+                contains: phoneWith0,
+                mode: "insensitive",
+              },
+            },
+          });
+        }
 
         // Only auto-match if exactly one customer found
         if (shopifyCustomers.length === 1) {
@@ -59,8 +108,8 @@ export async function POST(request: NextRequest) {
                 nhanhCustomerEmail: customer.email,
                 nhanhTotalSpent: customer.totalSpent,
                 shopifyCustomerId: shopifyCustomer.id,
-                shopifyCustomerEmail: shopifyCustomer.email,
-                shopifyCustomerName: `${shopifyCustomer.firstName} ${shopifyCustomer.lastName}`.trim(),
+                shopifyCustomerEmail: shopifyCustomer.email || undefined,
+                shopifyCustomerName: `${shopifyCustomer.firstName || ""} ${shopifyCustomer.lastName || ""}`.trim(),
                 syncStatus: SyncStatus.PENDING,
               },
             });
@@ -75,7 +124,7 @@ export async function POST(request: NextRequest) {
             },
             shopifyCustomer: {
               id: shopifyCustomer.id,
-              name: `${shopifyCustomer.firstName} ${shopifyCustomer.lastName}`,
+              name: `${shopifyCustomer.firstName || ""} ${shopifyCustomer.lastName || ""}`.trim(),
               email: shopifyCustomer.email,
             },
             status: "matched",

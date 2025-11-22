@@ -160,6 +160,18 @@ export const shopifyClient = {
       }
     );
   },
+
+  async pullCustomers() {
+    return apiCall<{
+      total: number;
+      created: number;
+      updated: number;
+      failed: number;
+      message: string;
+    }>("/api/shopify/pull-customers", {
+      method: "POST",
+    });
+  },
 };
 
 // Mapping & Sync API calls

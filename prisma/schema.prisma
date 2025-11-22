@@ -100,6 +100,26 @@ model SyncLog {
   @@map("sync_logs")
 }
 
+model ShopifyCustomer {
+  id        String   @id // Shopify customer ID
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  email      String?
+  firstName  String?
+  lastName   String?
+  phone      String?
+  totalSpent Decimal  @default(0) @db.Decimal(15, 2)
+  ordersCount Int     @default(0)
+  
+  // Metadata
+  lastPulledAt DateTime @default(now())
+
+  @@index([phone])
+  @@index([email])
+  @@map("shopify_customers")
+}
+
 model WebhookLog {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
