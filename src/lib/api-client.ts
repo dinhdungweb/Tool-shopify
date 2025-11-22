@@ -218,6 +218,21 @@ export const syncClient = {
     });
   },
 
+  async autoMatch(dryRun: boolean = false) {
+    return apiCall<{
+      total: number;
+      matched: number;
+      failed: number;
+      skipped: number;
+      details: any[];
+      dryRun: boolean;
+      message: string;
+    }>("/api/sync/auto-match", {
+      method: "POST",
+      body: JSON.stringify({ dryRun }),
+    });
+  },
+
   async syncCustomer(mappingId: string) {
     return apiCall<SyncResult>("/api/sync/sync-customer", {
       method: "POST",

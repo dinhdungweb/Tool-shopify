@@ -26,6 +26,8 @@ export default function CustomerSyncTable() {
   const [keyword, setKeyword] = useState("");
   const [mappingFilter, setMappingFilter] = useState<"all" | "mapped" | "unmapped">("all");
   const [syncedCount, setSyncedCount] = useState(0);
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const limit = 50;
 
   // Load customers and mappings
@@ -154,6 +156,32 @@ export default function CustomerSyncTable() {
     }
   }
 
+  async function handleAutoMatch() {
+    if (!confirm("Auto-match unmapped customers by phone number?\n\nThis will search Shopify for customers with matching phone numbers and create mappings automatically.")) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await syncClient.autoMatch(false);
+      await loadData();
+      
+      const details = result.details.filter((d: any) => d.status === "matched");
+      const detailsText = details.length > 0 && details.length <= 10
+        ? "\n\nMatched:\n" + details.map((d: any) => `- ${d.nhanhCustomer.name} → ${d.shopifyCustomer.name}`).join("\n")
+        : "";
+      
+      alert(
+        `Auto-match completed!\n\nTotal: ${result.total}\nMatched: ${result.matched}\nSkipped: ${result.skipped}\nFailed: ${result.failed}${detailsText}`
+      );
+    } catch (error: any) {
+      console.error("Error auto-matching:", error);
+      alert("Failed to auto-match: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleBulkSync() {
     const mappingIds = Array.from(selectedCustomers)
       .map((id) => mappings.get(id)?.id)
@@ -265,31 +293,77 @@ export default function CustomerSyncTable() {
               )}
             </button>
 
-            <button
-              onClick={() => {
-                setPage(1);
-                loadData();
-              }}
-              disabled={loading || pulling}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Refresh
-            </button>
+            {/* More Actions Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setMoreActionsOpen(!moreActionsOpen)}
+                disabled={loading || pulling}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                </svg>
+                More Actions
+                <svg className={`h-4 w-4 transition-transform ${moreActionsOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
 
-            <button
-              onClick={() => setAutoSyncModalOpen(true)}
-              disabled={loading || pulling}
-              className="inline-flex items-center gap-2 rounded-lg border border-brand-500 bg-brand-50 px-4 py-2.5 text-sm font-medium text-brand-700 shadow-theme-xs hover:bg-brand-100 disabled:opacity-50 dark:border-brand-600 dark:bg-brand-900/20 dark:text-brand-400 dark:hover:bg-brand-900/30"
-              title="Auto-sync settings"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Auto Sync
-            </button>
+              {moreActionsOpen && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-10" 
+                    onClick={() => setMoreActionsOpen(false)}
+                  />
+                  <div className="absolute right-0 z-20 mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                    <div className="py-1">
+                      <button
+                        onClick={() => {
+                          setPage(1);
+                          loadData();
+                          setMoreActionsOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Refresh
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          handleAutoMatch();
+                          setMoreActionsOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Auto Match
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setAutoSyncModalOpen(true);
+                          setMoreActionsOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Auto Sync Settings
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
 
             {selectedCustomers.size > 0 && (
               <button
@@ -330,26 +404,84 @@ export default function CustomerSyncTable() {
           </div>
 
           <div className="relative">
-            <select
-              value={mappingFilter}
-              onChange={(e) => {
-                setMappingFilter(e.target.value as "all" | "mapped" | "unmapped");
-                setPage(1);
-              }}
-              className="appearance-none rounded-lg border border-gray-300 bg-white pl-4 pr-10 py-2.5 text-sm text-gray-900 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white cursor-pointer"
+            <button
+              onClick={() => setFilterDropdownOpen(!filterDropdownOpen)}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
             >
-              <option value="all">All Customers</option>
-              <option value="mapped">Mapped Only</option>
-              <option value="unmapped">Unmapped Only</option>
-            </select>
-            <svg
-              className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+              </svg>
+              {mappingFilter === "all" ? "All Customers" : mappingFilter === "mapped" ? "Mapped Only" : "Unmapped Only"}
+              <svg className={`h-4 w-4 transition-transform ${filterDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {filterDropdownOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-10" 
+                  onClick={() => setFilterDropdownOpen(false)}
+                />
+                <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                  <div className="py-1">
+                    <button
+                      onClick={() => {
+                        setMappingFilter("all");
+                        setPage(1);
+                        setFilterDropdownOpen(false);
+                      }}
+                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
+                        mappingFilter === "all" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                      }`}
+                    >
+                      {mappingFilter === "all" && (
+                        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                      <span className={mappingFilter !== "all" ? "ml-7" : ""}>All Customers</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setMappingFilter("mapped");
+                        setPage(1);
+                        setFilterDropdownOpen(false);
+                      }}
+                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
+                        mappingFilter === "mapped" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                      }`}
+                    >
+                      {mappingFilter === "mapped" && (
+                        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                      <span className={mappingFilter !== "mapped" ? "ml-7" : ""}>Mapped Only</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setMappingFilter("unmapped");
+                        setPage(1);
+                        setFilterDropdownOpen(false);
+                      }}
+                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
+                        mappingFilter === "unmapped" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                      }`}
+                    >
+                      {mappingFilter === "unmapped" && (
+                        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                      <span className={mappingFilter !== "unmapped" ? "ml-7" : ""}>Unmapped Only</span>
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -433,14 +565,16 @@ export default function CustomerSyncTable() {
                       />
                     </TableCell>
                     <TableCell>
-                      {mapping?.shopifyCustomerEmail ? (
+                      {mapping?.shopifyCustomerId ? (
                         <div>
                           <p className="text-gray-700 dark:text-gray-300">
-                            {mapping.shopifyCustomerName}
+                            {mapping.shopifyCustomerName || "Unknown"}
                           </p>
-                          <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                            {mapping.shopifyCustomerEmail}
-                          </p>
+                          {mapping.shopifyCustomerEmail && (
+                            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                              {mapping.shopifyCustomerEmail}
+                            </p>
+                          )}
                         </div>
                       ) : (
                         <span className="text-gray-400">Not mapped</span>
