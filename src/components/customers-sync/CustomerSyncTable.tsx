@@ -8,6 +8,7 @@ import SyncStatusBadge from "./SyncStatusBadge";
 import MappingModal from "./MappingModal";
 import GlobalAutoSyncSettings from "./GlobalAutoSyncSettings";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "../ui/table";
+import Checkbox from "../form/input/Checkbox";
 
 export default function CustomerSyncTable() {
   const [customers, setCustomers] = useState<NhanhCustomer[]>([]);
@@ -239,7 +240,7 @@ export default function CustomerSyncTable() {
               Nhanh.vn Customers
             </h3>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {total} customers in database
+              {total} customers
             </p>
           </div>
 
@@ -281,8 +282,8 @@ export default function CustomerSyncTable() {
             <button
               onClick={() => setAutoSyncModalOpen(true)}
               disabled={loading || pulling}
-              className="inline-flex items-center gap-2 rounded-lg border border-purple-300 bg-purple-50 px-4 py-2.5 text-sm font-medium text-purple-700 shadow-theme-xs hover:bg-purple-100 disabled:opacity-50 dark:border-purple-700 dark:bg-purple-900/20 dark:text-purple-400 dark:hover:bg-purple-900/30"
-              title="Cài đặt đồng bộ tự động"
+              className="inline-flex items-center gap-2 rounded-lg border border-brand-500 bg-brand-50 px-4 py-2.5 text-sm font-medium text-brand-700 shadow-theme-xs hover:bg-brand-100 disabled:opacity-50 dark:border-brand-600 dark:bg-brand-900/20 dark:text-brand-400 dark:hover:bg-brand-900/30"
+              title="Auto-sync settings"
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -359,11 +360,9 @@ export default function CustomerSyncTable() {
           <TableHeader className="border-gray-100 dark:border-gray-800 border-y bg-gray-50 dark:bg-gray-900">
             <TableRow>
               <TableCell isHeader className="w-12">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={selectedCustomers.size === customers.length && customers.length > 0}
                   onChange={handleSelectAll}
-                  className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
                 />
               </TableCell>
               <TableCell isHeader>Customer</TableCell>
@@ -398,11 +397,9 @@ export default function CustomerSyncTable() {
                 return (
                   <TableRow key={customer.id}>
                     <TableCell>
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={selectedCustomers.has(customer.id)}
                         onChange={() => handleSelectCustomer(customer.id)}
-                        className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
                       />
                     </TableCell>
                     <TableCell>
@@ -454,24 +451,42 @@ export default function CustomerSyncTable() {
                         {!mapping || !mapping.shopifyCustomerId ? (
                           <button
                             onClick={() => openMappingModal(customer)}
-                            className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-600"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-600"
                           >
+                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                            </svg>
                             Map
                           </button>
                         ) : (
                           <>
                             <button
                               onClick={() => openMappingModal(customer)}
-                              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
                             >
+                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                              </svg>
                               Remap
                             </button>
                             <button
                               onClick={() => handleSync(customer.id)}
                               disabled={isSyncing}
-                              className="rounded-lg bg-success-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-success-600 disabled:opacity-50"
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-success-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-success-600 disabled:opacity-50"
                             >
-                              {isSyncing ? "Syncing..." : "Sync"}
+                              {isSyncing ? (
+                                <>
+                                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
+                                  Syncing...
+                                </>
+                              ) : (
+                                <>
+                                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                  </svg>
+                                  Sync
+                                </>
+                              )}
                             </button>
                           </>
                         )}
