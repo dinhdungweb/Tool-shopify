@@ -151,3 +151,112 @@ enum SyncAction {
   WEBHOOK_SYNC
   BULK_SYNC
 }
+
+// ============================================
+// SALE CAMPAIGN MODELS
+// ============================================
+
+model SaleCampaign {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Campaign Info
+  name        String
+  description String?  @db.Text
+  status      CampaignStatus @default(DRAFT)
+  
+  // Discount Settings
+  discountType   DiscountType // PERCENTAGE, FIXED_AMOUNT
+  discountValue  Decimal      @db.Decimal(10, 2)
+  
+  // Target Settings
+  targetType      TargetType   // PRODUCT, COLLECTION, PRODUCT_TYPE, ALL
+  targetIds       String[]     // Array of product/collection IDs
+  productType     String?      // For PRODUCT_TYPE target
+  collectionTitle String?      // For COLLECTION target - store collection name
+  
+  // Schedule Settings
+  scheduleType   ScheduleType @default(IMMEDIATE)
+  startDate      DateTime?
+  endDate        DateTime?
+  
+  // Execution Status
+  appliedAt      DateTime?
+  revertedAt     DateTime?
+  affectedCount  Int          @default(0)
+  errorMessage   String?      @db.Text
+  
+  // Relations
+  priceChanges   PriceChange[]
+  
+  @@index([status])
+  @@index([scheduleType])
+  @@index([startDate])
+  @@index([endDate])
+  @@map("sale_campaigns")
+}
+
+model PriceChange {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  campaignId  String
+  campaign    SaleCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  
+  // Product Info
+  productId       String
+  variantId       String
+  productTitle    String
+  variantTitle    String?
+  sku             String?
+  
+  // Price Info
+  originalPrice          Decimal  @db.Decimal(10, 2)
+  originalCompareAtPrice Decimal? @db.Decimal(10, 2)
+  salePrice              Decimal  @db.Decimal(10, 2)
+  currentPrice           Decimal  @db.Decimal(10, 2)
+  
+  // Status
+  applied         Boolean  @default(false)
+  appliedAt       DateTime?
+  reverted        Boolean  @default(false)
+  revertedAt      DateTime?
+  error           String?  @db.Text
+  
+  @@index([campaignId])
+  @@index([productId])
+  @@index([variantId])
+  @@index([applied])
+  @@index([reverted])
+  @@map("price_changes")
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  APPLYING
+  ACTIVE
+  REVERTING
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum TargetType {
+  PRODUCT
+  COLLECTION
+  PRODUCT_TYPE
+  ALL
+}
+
+enum ScheduleType {
+  IMMEDIATE
+  SCHEDULED
+}

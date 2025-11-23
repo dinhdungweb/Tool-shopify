@@ -479,6 +479,11 @@ span.flatpickr-weekday,
   @apply right-0;
 }
 
+/* Ensure flatpickr calendar appears above modals */
+.flatpickr-calendar.open {
+  z-index: 999999 !important;
+}
+
 .fc .fc-view-harness {
   @apply max-w-full overflow-x-auto custom-scrollbar;
 }

@@ -260,3 +260,166 @@ export const syncClient = {
     });
   },
 };
+
+// Sale Campaign API calls
+export const saleClient = {
+  async getCampaigns(params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    targetType?: string;
+  }) {
+    const cleanParams: Record<string, string> = {};
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== "") {
+          cleanParams[key] = String(value);
+        }
+      });
+    }
+
+    const query = new URLSearchParams(cleanParams).toString();
+    return apiCall<{
+      campaigns: any[];
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
+    }>(`/api/sale/campaigns?${query}`);
+  },
+
+  async getCampaignById(id: string) {
+    return apiCall<any>(`/api/sale/campaigns/${id}`);
+  },
+
+  async createCampaign(data: {
+    name: string;
+    description?: string;
+    discountType: string;
+    discountValue: number;
+    targetType: string;
+    targetIds: string[];
+    productType?: string;
+    collectionTitle?: string;
+    scheduleType: string;
+    startDate?: Date;
+    endDate?: Date;
+  }) {
+    return apiCall<any>("/api/sale/campaigns", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateCampaign(id: string, data: any) {
+    return apiCall<any>(`/api/sale/campaigns/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteCampaign(id: string) {
+    return apiCall<{ message: string }>(`/api/sale/campaigns/${id}`, {
+      method: "DELETE",
+    });
+  },
+
+  async previewCampaign(id: string) {
+    return apiCall<{
+      totalProducts: number;
+      totalVariants: number;
+      estimatedSavings: number;
+      products: any[];
+    }>(`/api/sale/campaigns/${id}/preview`);
+  },
+
+  async applyCampaign(id: string) {
+    return apiCall<{
+      affectedCount: number;
+      failedCount: number;
+      errors: string[];
+    }>(`/api/sale/campaigns/${id}/apply`, {
+      method: "POST",
+    });
+  },
+
+  async revertCampaign(id: string) {
+    return apiCall<{
+      revertedCount: number;
+      failedCount: number;
+      errors: string[];
+    }>(`/api/sale/campaigns/${id}/revert`, {
+      method: "POST",
+    });
+  },
+
+  async checkConflicts(data: {
+    targetType: string;
+    targetIds: string[];
+    productType?: string;
+    excludeCampaignId?: string;
+  }) {
+    return apiCall<{
+      hasConflict: boolean;
+      conflictingCampaigns: any[];
+    }>("/api/sale/campaigns/check-conflicts", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Shopify data
+  async getProducts(params?: {
+    first?: number;
+    after?: string;
+    query?: string;
+  }) {
+    const cleanParams: Record<string, string> = {};
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== "") {
+          cleanParams[key] = String(value);
+        }
+      });
+    }
+
+    const query = new URLSearchParams(cleanParams).toString();
+    return apiCall<{
+      products: any[];
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    }>(`/api/sale/shopify/products?${query}`);
+  },
+
+  async getCollections() {
+    return apiCall<any[]>("/api/sale/shopify/collections");
+  },
+
+  async getProductTypes() {
+    return apiCall<string[]>("/api/sale/shopify/product-types");
+  },
+
+  // Scheduler
+  async getSchedulerStatus() {
+    return apiCall<{
+      scheduler: { isInitialized: boolean; isRunning: boolean };
+      upcomingCampaigns: any[];
+      activeCampaigns: any[];
+    }>("/api/sale/scheduler/status");
+  },
+
+  async triggerScheduler() {
+    return apiCall<{ message: string }>("/api/sale/scheduler/trigger", {
+      method: "POST",
+    });
+  },
+
+  async restartScheduler() {
+    return apiCall<{
+      scheduler: { isInitialized: boolean; isRunning: boolean };
+    }>("/api/sale/scheduler/restart", {
+      method: "POST",
+    });
+  },
+};
