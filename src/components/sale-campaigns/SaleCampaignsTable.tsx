@@ -228,7 +228,7 @@ export default function SaleCampaignsTable() {
                 />
                 <div className="absolute left-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
                   <div className="py-1">
-                    {["all", "draft", "scheduled", "active", "completed", "failed"].map((status) => (
+                    {["all", "scheduled", "active", "completed", "failed"].map((status) => (
                       <button
                         key={status}
                         onClick={() => {
@@ -344,7 +344,7 @@ export default function SaleCampaignsTable() {
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-2">
-                      {campaign.status === "DRAFT" || campaign.status === "SCHEDULED" ? (
+                      {campaign.status === "SCHEDULED" ? (
                         <button
                           onClick={() => handleApply(campaign.id, campaign.name)}
                           disabled={actionLoadingId === campaign.id}

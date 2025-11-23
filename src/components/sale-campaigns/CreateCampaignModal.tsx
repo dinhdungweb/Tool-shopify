@@ -237,6 +237,9 @@ export default function CreateCampaignModal({
       // Wait a bit for database to update
       await new Promise(resolve => setTimeout(resolve, 500));
       
+      // Clear tempCampaignId so handleClose won't delete it
+      setTempCampaignId(null);
+      
       onSuccess();
       handleClose();
     } catch (error: any) {
@@ -247,9 +250,16 @@ export default function CreateCampaignModal({
     }
   }
 
-  function handleClose() {
-    // If a draft campaign was created, trigger refresh
-    const hasDraftCampaign = tempCampaignId !== null;
+  async function handleClose() {
+    // If a draft campaign was created but not applied/scheduled, delete it
+    if (tempCampaignId !== null && step === 4) {
+      try {
+        await saleClient.deleteCampaign(tempCampaignId);
+        console.log("Deleted draft campaign:", tempCampaignId);
+      } catch (error) {
+        console.error("Error deleting draft campaign:", error);
+      }
+    }
     
     setStep(1);
     setName("");
@@ -270,11 +280,6 @@ export default function CreateCampaignModal({
     setProductTypes([]);
     
     onClose();
-    
-    // Refresh list if draft was created
-    if (hasDraftCampaign) {
-      onSuccess();
-    }
   }
 
   function formatCurrency(amount: number) {
