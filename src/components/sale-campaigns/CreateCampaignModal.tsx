@@ -220,6 +220,9 @@ export default function CreateCampaignModal({
   }
 
   function handleClose() {
+    // If a draft campaign was created, trigger refresh
+    const hasDraftCampaign = tempCampaignId !== null;
+    
     setStep(1);
     setName("");
     setDescription("");
@@ -237,7 +240,13 @@ export default function CreateCampaignModal({
     setProducts([]);
     setCollections([]);
     setProductTypes([]);
+    
     onClose();
+    
+    // Refresh list if draft was created
+    if (hasDraftCampaign) {
+      onSuccess();
+    }
   }
 
   function formatCurrency(amount: number) {

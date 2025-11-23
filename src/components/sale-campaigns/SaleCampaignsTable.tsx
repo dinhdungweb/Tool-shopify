@@ -61,6 +61,10 @@ export default function SaleCampaignsTable() {
     try {
       setActionLoadingId(campaignId);
       const result = await saleClient.applyCampaign(campaignId);
+      
+      // Reload campaigns to show updated status
+      await loadCampaigns();
+      
       alert(`Campaign applied successfully!\n\n${result.affectedCount} variants updated.`);
     } catch (error: any) {
       console.error("Error applying campaign:", error);
@@ -78,6 +82,10 @@ export default function SaleCampaignsTable() {
     try {
       setActionLoadingId(campaignId);
       const result = await saleClient.revertCampaign(campaignId);
+      
+      // Reload campaigns to show updated status
+      await loadCampaigns();
+      
       alert(`Campaign reverted successfully!\n\n${result.revertedCount} variants restored.`);
     } catch (error: any) {
       console.error("Error reverting campaign:", error);
