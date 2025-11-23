@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import flatpickr from 'flatpickr';
+import type { Instance } from 'flatpickr/dist/types/instance';
 import 'flatpickr/dist/flatpickr.css';
 import Label from './Label';
 import { CalenderIcon } from '../../icons';
@@ -23,32 +24,72 @@ export default function DateTimePicker({
   minDate,
   disabled = false,
 }: DateTimePickerProps) {
+  const flatpickrInstance = useRef<Instance | Instance[] | null>(null);
+  const isUpdatingRef = useRef(false);
+
   useEffect(() => {
-    const flatPickr = flatpickr(`#${id}`, {
-      enableTime: true,
-      dateFormat: "Y-m-d H:i",
-      time_24hr: true,
-      static: false, // Allow calendar to append to body to avoid overflow issues
-      monthSelectorType: "static",
-      defaultDate: value || undefined,
-      minDate: minDate || undefined,
-      appendTo: document.body, // Append to body to avoid z-index issues
-      onChange: (selectedDates) => {
-        if (onChange && selectedDates.length > 0) {
-          const date = selectedDates[0];
-          // Format to datetime-local format (YYYY-MM-DDTHH:mm)
-          const formatted = date.toISOString().slice(0, 16);
-          onChange(formatted);
-        }
-      },
-    });
+    if (!flatpickrInstance.current) {
+      const instance = flatpickr(`#${id}`, {
+        enableTime: true,
+        dateFormat: "Y-m-d H:i",
+        time_24hr: true,
+        static: false,
+        monthSelectorType: "static",
+        defaultDate: value || undefined,
+        minDate: minDate || undefined,
+        appendTo: document.body,
+        onChange: (selectedDates) => {
+          if (onChange && selectedDates.length > 0 && !isUpdatingRef.current) {
+            const date = selectedDates[0];
+            // Format to local datetime string without timezone conversion
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const formatted = `${year}-${month}-${day}T${hours}:${minutes}`;
+            onChange(formatted);
+          }
+        },
+      });
+      flatpickrInstance.current = instance;
+    }
 
     return () => {
-      if (!Array.isArray(flatPickr)) {
-        flatPickr.destroy();
+      if (flatpickrInstance.current) {
+        if (Array.isArray(flatpickrInstance.current)) {
+          flatpickrInstance.current.forEach(fp => fp.destroy());
+        } else {
+          flatpickrInstance.current.destroy();
+        }
+        flatpickrInstance.current = null;
       }
     };
-  }, [id, value, onChange, minDate]);
+  }, [id]);
+
+  // Update flatpickr when value changes externally (without recreating instance)
+  useEffect(() => {
+    if (flatpickrInstance.current && value) {
+      isUpdatingRef.current = true;
+      const instance = Array.isArray(flatpickrInstance.current) 
+        ? flatpickrInstance.current[0] 
+        : flatpickrInstance.current;
+      instance.setDate(value, false); // false = don't trigger onChange
+      setTimeout(() => {
+        isUpdatingRef.current = false;
+      }, 0);
+    }
+  }, [value]);
+
+  // Update minDate when it changes
+  useEffect(() => {
+    if (flatpickrInstance.current && minDate) {
+      const instance = Array.isArray(flatpickrInstance.current) 
+        ? flatpickrInstance.current[0] 
+        : flatpickrInstance.current;
+      instance.set('minDate', minDate);
+    }
+  }, [minDate]);
 
   return (
     <div>

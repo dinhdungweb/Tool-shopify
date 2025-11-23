@@ -203,7 +203,35 @@ export default function CreateCampaignModal({
         }
       } else {
         // Just save as scheduled
-        alert("Campaign scheduled successfully!");
+        const startTime = new Date(startDate).toLocaleString("vi-VN", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        
+        let message = `Campaign scheduled successfully!\n\n`;
+        message += `📅 Start: ${startTime}\n`;
+        
+        if (endDate) {
+          const endTime = new Date(endDate).toLocaleString("vi-VN", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          message += `📅 End: ${endTime}\n`;
+        }
+        
+        message += `\n📊 Preview:\n`;
+        message += `• ${preview?.totalProducts || 0} products\n`;
+        message += `• ${preview?.totalVariants || 0} variants will be updated\n`;
+        message += `• Discount: ${discountType === "PERCENTAGE" ? discountValue + "%" : formatCurrency(parseFloat(discountValue))}\n`;
+        message += `\nThe campaign will automatically apply at the scheduled time.`;
+        
+        alert(message);
       }
 
       // Wait a bit for database to update
