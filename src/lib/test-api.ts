@@ -53,15 +53,15 @@ async function testNhanhAPI() {
 async function testShopifyAPI() {
   console.log("\n🧪 Testing Shopify API...");
   try {
-    const customers = await shopifyAPI.getAllCustomers(5);
+    const result = await shopifyAPI.getAllCustomers(5);
     console.log("✅ Shopify API works!");
-    console.log(`Found ${customers.length} customers`);
-    if (customers.length > 0) {
+    console.log(`Found ${result.customers.length} customers`);
+    if (result.customers.length > 0) {
       console.log("First customer:", {
-        id: customers[0].id,
-        email: customers[0].email,
-        name: `${customers[0].firstName} ${customers[0].lastName}`,
-        totalSpent: customers[0].totalSpent,
+        id: result.customers[0].id,
+        email: result.customers[0].email,
+        name: `${result.customers[0].firstName} ${result.customers[0].lastName}`,
+        totalSpent: result.customers[0].totalSpent,
       });
     }
   } catch (error: any) {

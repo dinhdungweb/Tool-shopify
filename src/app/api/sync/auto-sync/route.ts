@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '100');
+    const limitParam = searchParams.get('limit');
+    const limit = limitParam ? parseInt(limitParam) : undefined; // No limit by default
 
     console.log('Starting global auto sync...');
 
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
       where: {
         syncStatus: 'SYNCED',
       },
-      take: limit,
+      ...(limit ? { take: limit } : {}), // Only apply limit if specified
       orderBy: { lastSyncedAt: 'asc' }, // Sync oldest first
     });
 

@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "50");
     const keyword = searchParams.get("keyword") || "";
     const mappingStatus = searchParams.get("mappingStatus") || "";
+    const syncStatus = searchParams.get("syncStatus") || "";
 
     // Build where clause for search and filter
     const where: any = {};
@@ -27,8 +28,13 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    // Mapping status filter
-    if (mappingStatus === "mapped") {
+    // Combined mapping and sync status filter
+    if (syncStatus && syncStatus !== "all") {
+      // If filtering by sync status, we need a mapping with that status
+      where.mapping = {
+        syncStatus: syncStatus.toUpperCase(),
+      };
+    } else if (mappingStatus === "mapped") {
       where.mapping = { isNot: null };
     } else if (mappingStatus === "unmapped") {
       where.mapping = null;

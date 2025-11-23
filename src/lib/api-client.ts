@@ -108,6 +108,7 @@ export const nhanhClient = {
     limit?: number;
     keyword?: string;
     mappingStatus?: "mapped" | "unmapped";
+    syncStatus?: "all" | "unmapped" | "pending" | "synced" | "failed";
   }) {
     // Filter out undefined values
     const cleanParams: Record<string, string> = {};

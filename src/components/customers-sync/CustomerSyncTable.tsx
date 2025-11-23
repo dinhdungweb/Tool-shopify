@@ -24,30 +24,39 @@ export default function CustomerSyncTable() {
   const [totalPages, setTotalPages] = useState(0);
   const [pulling, setPulling] = useState(false);
   const [keyword, setKeyword] = useState("");
-  const [mappingFilter, setMappingFilter] = useState<"all" | "mapped" | "unmapped">("all");
+  const [filter, setFilter] = useState<"all" | "mapped" | "unmapped" | "pending" | "synced" | "failed">("all");
   const [syncedCount, setSyncedCount] = useState(0);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
+  const [selectDropdownOpen, setSelectDropdownOpen] = useState(false);
   const limit = 50;
 
   // Load customers and mappings
   useEffect(() => {
     loadData();
-  }, [page, keyword, mappingFilter]);
+  }, [page, keyword, filter]);
 
   async function loadData() {
     try {
       setLoading(true);
       
       // Load customers from local database
-      console.log("Loading customers from database...", { page, limit, keyword, mappingFilter });
+      console.log("Loading customers from database...", { page, limit, keyword, filter });
       const params: any = { page, limit };
       if (keyword && keyword.trim()) {
         params.keyword = keyword.trim();
       }
-      if (mappingFilter !== "all") {
-        params.mappingStatus = mappingFilter;
+      
+      // Apply filter based on selection
+      if (filter === "mapped") {
+        params.mappingStatus = "mapped";
+      } else if (filter === "unmapped") {
+        params.mappingStatus = "unmapped";
+      } else if (filter !== "all") {
+        // pending, synced, failed
+        params.syncStatus = filter;
       }
+      
       const nhanhData = await nhanhClient.getLocalCustomers(params);
       
       console.log("Loaded customers:", {
@@ -437,6 +446,7 @@ export default function CustomerSyncTable() {
             </svg>
           </div>
 
+          {/* Filter Dropdown */}
           <div className="relative">
             <button
               onClick={() => setFilterDropdownOpen(!filterDropdownOpen)}
@@ -445,7 +455,11 @@ export default function CustomerSyncTable() {
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
               </svg>
-              {mappingFilter === "all" ? "All Customers" : mappingFilter === "mapped" ? "Mapped Only" : "Unmapped Only"}
+              {filter === "all" ? "All Customers" : 
+               filter === "mapped" ? "Mapped" :
+               filter === "unmapped" ? "Unmapped" :
+               filter === "pending" ? "Pending" :
+               filter === "synced" ? "Synced" : "Failed"}
               <svg className={`h-4 w-4 transition-transform ${filterDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
@@ -461,56 +475,110 @@ export default function CustomerSyncTable() {
                   <div className="py-1">
                     <button
                       onClick={() => {
-                        setMappingFilter("all");
+                        setFilter("all");
                         setPage(1);
                         setFilterDropdownOpen(false);
                       }}
                       className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                        mappingFilter === "all" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                        filter === "all" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
                       }`}
                     >
-                      {mappingFilter === "all" && (
+                      {filter === "all" && (
                         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                         </svg>
                       )}
-                      <span className={mappingFilter !== "all" ? "ml-7" : ""}>All Customers</span>
+                      <span className={filter !== "all" ? "ml-7" : ""}>All Customers</span>
                     </button>
 
                     <button
                       onClick={() => {
-                        setMappingFilter("mapped");
+                        setFilter("mapped");
                         setPage(1);
                         setFilterDropdownOpen(false);
                       }}
                       className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                        mappingFilter === "mapped" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                        filter === "mapped" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
                       }`}
                     >
-                      {mappingFilter === "mapped" && (
+                      {filter === "mapped" && (
                         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                         </svg>
                       )}
-                      <span className={mappingFilter !== "mapped" ? "ml-7" : ""}>Mapped Only</span>
+                      <span className={filter !== "mapped" ? "ml-7" : ""}>Mapped</span>
                     </button>
 
                     <button
                       onClick={() => {
-                        setMappingFilter("unmapped");
+                        setFilter("unmapped");
                         setPage(1);
                         setFilterDropdownOpen(false);
                       }}
                       className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                        mappingFilter === "unmapped" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                        filter === "unmapped" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
                       }`}
                     >
-                      {mappingFilter === "unmapped" && (
+                      {filter === "unmapped" && (
                         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                         </svg>
                       )}
-                      <span className={mappingFilter !== "unmapped" ? "ml-7" : ""}>Unmapped Only</span>
+                      <span className={filter !== "unmapped" ? "ml-7" : ""}>Unmapped</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setFilter("pending");
+                        setPage(1);
+                        setFilterDropdownOpen(false);
+                      }}
+                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
+                        filter === "pending" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                      }`}
+                    >
+                      {filter === "pending" && (
+                        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                      <span className={filter !== "pending" ? "ml-7" : ""}>Pending</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setFilter("synced");
+                        setPage(1);
+                        setFilterDropdownOpen(false);
+                      }}
+                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
+                        filter === "synced" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                      }`}
+                    >
+                      {filter === "synced" && (
+                        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                      <span className={filter !== "synced" ? "ml-7" : ""}>Synced</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setFilter("failed");
+                        setPage(1);
+                        setFilterDropdownOpen(false);
+                      }}
+                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
+                        filter === "failed" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                      }`}
+                    >
+                      {filter === "failed" && (
+                        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                      <span className={filter !== "failed" ? "ml-7" : ""}>Failed</span>
                     </button>
                   </div>
                 </div>
@@ -526,10 +594,82 @@ export default function CustomerSyncTable() {
           <TableHeader className="border-gray-100 dark:border-gray-800 border-y bg-gray-50 dark:bg-gray-900">
             <TableRow>
               <TableCell isHeader className="w-12">
-                <Checkbox
-                  checked={selectedCustomers.size === customers.length && customers.length > 0}
-                  onChange={handleSelectAll}
-                />
+                <div className="relative">
+                  <Checkbox
+                    checked={selectedCustomers.size === customers.length && customers.length > 0}
+                    onChange={() => setSelectDropdownOpen(!selectDropdownOpen)}
+                  />
+                  
+                  {selectDropdownOpen && (
+                    <>
+                      <div 
+                        className="fixed inset-0 z-10" 
+                        onClick={() => setSelectDropdownOpen(false)}
+                      />
+                      <div className="absolute left-0 z-20 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                        <div className="py-1">
+                          <button
+                            onClick={() => {
+                              setSelectedCustomers(new Set(customers.map((c) => c.id)));
+                              setSelectDropdownOpen(false);
+                            }}
+                            className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Select all on this page ({customers.length})
+                          </button>
+
+                          <button
+                            onClick={async () => {
+                              if (confirm(`Select all ${total} customers across all pages?`)) {
+                                try {
+                                  setLoading(true);
+                                  // Fetch all customer IDs
+                                  const params: any = { page: 1, limit: total };
+                                  if (keyword) params.keyword = keyword;
+                                  if (filter === "mapped" || filter === "unmapped") {
+                                    params.mappingStatus = filter;
+                                  } else if (filter !== "all") {
+                                    params.syncStatus = filter;
+                                  }
+                                  const allCustomers = await nhanhClient.getLocalCustomers(params);
+                                  setSelectedCustomers(new Set(allCustomers.customers.map((c: any) => c.id)));
+                                  setSelectDropdownOpen(false);
+                                } catch (error) {
+                                  console.error("Error selecting all:", error);
+                                  alert("Failed to select all customers");
+                                } finally {
+                                  setLoading(false);
+                                }
+                              }
+                            }}
+                            className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-brand-700 hover:bg-brand-50 dark:text-brand-400 dark:hover:bg-brand-900/20"
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                            </svg>
+                            Select all {total} customers
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setSelectedCustomers(new Set());
+                              setSelectDropdownOpen(false);
+                            }}
+                            className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            Unselect all
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
               </TableCell>
               <TableCell isHeader>Customer</TableCell>
               <TableCell isHeader>Contact</TableCell>

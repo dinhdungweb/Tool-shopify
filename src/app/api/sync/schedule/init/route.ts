@@ -7,13 +7,12 @@ export async function GET() {
   try {
     await cronScheduler.initialize();
 
-    const activeTasks = cronScheduler.getActiveTasks();
+    const status = cronScheduler.getStatus();
 
     return NextResponse.json({
       success: true,
       message: 'Cron scheduler initialized successfully',
-      activeTasks: activeTasks.length,
-      tasks: activeTasks,
+      status,
     });
   } catch (error) {
     console.error('Error initializing cron scheduler:', error);
@@ -36,13 +35,12 @@ export async function POST() {
     // Reinitialize
     await cronScheduler.initialize();
 
-    const activeTasks = cronScheduler.getActiveTasks();
+    const status = cronScheduler.getStatus();
 
     return NextResponse.json({
       success: true,
       message: 'Cron scheduler reinitialized successfully',
-      activeTasks: activeTasks.length,
-      tasks: activeTasks,
+      status,
     });
   } catch (error) {
     console.error('Error reinitializing cron scheduler:', error);
