@@ -26,6 +26,7 @@ export default function CustomerSyncTable() {
   const [keyword, setKeyword] = useState("");
   const [filter, setFilter] = useState<"all" | "mapped" | "unmapped" | "pending" | "synced" | "failed">("all");
   const [syncedCount, setSyncedCount] = useState(0);
+  const [pullDropdownOpen, setPullDropdownOpen] = useState(false);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const [selectDropdownOpen, setSelectDropdownOpen] = useState(false);
@@ -90,7 +91,7 @@ export default function CustomerSyncTable() {
   }
 
   async function handlePullCustomers() {
-    if (!confirm("Pull all customers from Nhanh.vn and save to database? This may take a few minutes.")) {
+    if (!confirm("Pull 5,000 customers from Nhanh.vn? This will take ~5 minutes.")) {
       return;
     }
 
@@ -108,6 +109,38 @@ export default function CustomerSyncTable() {
       await loadData();
     } catch (error: any) {
       console.error("Error pulling customers:", error);
+      alert("Failed to pull customers: " + error.message);
+    } finally {
+      setPulling(false);
+    }
+  }
+
+  async function handlePullIncremental() {
+    if (!confirm("Pull only new/updated customers?\n\nThis is faster and recommended for daily updates.")) {
+      return;
+    }
+
+    try {
+      setPulling(true);
+      const response = await fetch("/api/nhanh/pull-customers-incremental", {
+        method: "POST",
+      });
+      const result = await response.json();
+      
+      if (result.success) {
+        alert(
+          `Incremental pull completed!\n\n` +
+          `Total processed: ${result.data.total}\n` +
+          `New: ${result.data.created}\n` +
+          `Updated: ${result.data.updated}`
+        );
+        setPage(1);
+        await loadData();
+      } else {
+        throw new Error(result.error || "Failed");
+      }
+    } catch (error: any) {
+      console.error("Error in incremental pull:", error);
       alert("Failed to pull customers: " + error.message);
     } finally {
       setPulling(false);
@@ -162,6 +195,33 @@ export default function CustomerSyncTable() {
       const newSyncing = new Set(syncing);
       newSyncing.delete(customerId);
       setSyncing(newSyncing);
+    }
+  }
+
+  async function handlePullAllCustomers() {
+    if (!confirm("Pull ALL customers from Nhanh.vn in background?\n\nThis will continue running even if you close this page. Check the console logs for progress.")) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/nhanh/pull-customers-all", {
+        method: "POST",
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        alert(
+          "Background pull started!\n\n" +
+          result.message +
+          "\n\nCheck the server console logs for progress."
+        );
+      } else {
+        throw new Error(result.error || "Failed to start background pull");
+      }
+    } catch (error: any) {
+      console.error("Error starting background pull:", error);
+      alert("Failed to start background pull: " + error.message);
     }
   }
 
@@ -302,25 +362,108 @@ export default function CustomerSyncTable() {
           </div>
 
           <div className="flex gap-3">
-            <button
-              onClick={handlePullCustomers}
-              disabled={loading || pulling}
-              className="inline-flex items-center gap-2 rounded-lg border border-brand-500 bg-brand-50 px-4 py-2.5 text-sm font-medium text-brand-700 shadow-theme-xs hover:bg-brand-100 disabled:opacity-50 dark:border-brand-600 dark:bg-brand-900/20 dark:text-brand-400 dark:hover:bg-brand-900/30"
-            >
-              {pulling ? (
+            {/* Pull Customers Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setPullDropdownOpen(!pullDropdownOpen)}
+                disabled={loading || pulling}
+                className="inline-flex items-center gap-2 rounded-lg border border-brand-500 bg-brand-50 px-4 py-2.5 text-sm font-medium text-brand-700 shadow-theme-xs hover:bg-brand-100 disabled:opacity-50 dark:border-brand-600 dark:bg-brand-900/20 dark:text-brand-400 dark:hover:bg-brand-900/30"
+              >
+                {pulling ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600"></div>
+                    Pulling...
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Pull Customers
+                  </>
+                )}
+                <svg className={`h-4 w-4 transition-transform ${pullDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {pullDropdownOpen && (
                 <>
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600"></div>
-                  Pulling...
-                </>
-              ) : (
-                <>
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  Pull from Nhanh.vn
+                  <div 
+                    className="fixed inset-0 z-10" 
+                    onClick={() => setPullDropdownOpen(false)}
+                  />
+                  <div className="absolute right-0 z-20 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                    <div className="py-1">
+                      <button
+                        onClick={() => {
+                          handlePullIncremental();
+                          setPullDropdownOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                        title="Pull only new/updated customers (recommended for daily updates)"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        <div className="flex-1 text-left">
+                          <div>Pull New/Updated</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Daily updates (fastest)</div>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          handlePullAllCustomers();
+                          setPullDropdownOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                        title="Pull all customers in background (auto-resume)"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                        </svg>
+                        <div className="flex-1 text-left">
+                          <div>Pull All (Background)</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Full sync, auto-resume</div>
+                        </div>
+                      </button>
+
+                      <div className="border-t border-gray-200 dark:border-gray-700"></div>
+                      
+                      <button
+                        onClick={async () => {
+                          if (confirm("Reset pull progress and start from beginning?")) {
+                            try {
+                              const response = await fetch("/api/nhanh/reset-pull-progress", {
+                                method: "POST",
+                              });
+                              const result = await response.json();
+                              alert(result.message);
+                            } catch (error: any) {
+                              alert("Failed to reset: " + error.message);
+                            }
+                          }
+                          setPullDropdownOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        <div className="flex-1 text-left">
+                          <div>Reset Pull Progress</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Start from beginning</div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
                 </>
               )}
-            </button>
+            </div>
 
             {/* More Actions Dropdown */}
             <div className="relative">

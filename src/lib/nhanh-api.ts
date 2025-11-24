@@ -177,12 +177,6 @@ class NhanhAPI {
       nextCursor = response.next;
       hasMore = response.hasMore;
 
-      // Safety limit to prevent infinite loops
-      if (allCustomers.length > 10000) {
-        console.warn("Reached safety limit of 10000 customers");
-        break;
-      }
-
       // Add small delay to avoid rate limiting
       if (hasMore) {
         await new Promise(resolve => setTimeout(resolve, 500));

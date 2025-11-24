@@ -13,13 +13,23 @@ export async function POST(request: NextRequest) {
   try {
     console.log("Starting to pull ALL Shopify customers with pagination...");
 
+    // Check for existing progress
+    const progress = await prisma.pullProgress.findUnique({
+      where: { id: "shopify_customers" },
+    });
+
     let created = 0;
     let updated = 0;
     let failed = 0;
     let totalFetched = 0;
     let hasNextPage = true;
-    let cursor: string | null = null;
+    let cursor: string | null = progress?.nextCursor as string | null || null;
     let pageCount = 0;
+    const resuming = !!cursor;
+
+    if (resuming) {
+      console.log(`🔄 Resuming from previous pull (${progress?.totalPulled || 0} customers already pulled)`);
+    }
 
     // Pull all customers using pagination
     while (hasNextPage) {
@@ -80,10 +90,37 @@ export async function POST(request: NextRequest) {
       hasNextPage = pageInfo.hasNextPage;
       cursor = pageInfo.endCursor;
 
+      // Save progress after each page
+      await prisma.pullProgress.upsert({
+        where: { id: "shopify_customers" },
+        create: {
+          id: "shopify_customers",
+          nextCursor: cursor ? cursor : undefined,
+          totalPulled: totalFetched,
+          lastPulledAt: new Date(),
+          isCompleted: !hasNextPage,
+        },
+        update: {
+          nextCursor: cursor ? cursor : undefined,
+          totalPulled: totalFetched,
+          lastPulledAt: new Date(),
+          isCompleted: !hasNextPage,
+        },
+      });
+
       console.log(`Page ${pageCount} completed. Has more pages: ${hasNextPage}`);
     }
 
-    console.log(`Pull completed! Total: ${totalFetched}, Created: ${created}, Updated: ${updated}, Failed: ${failed}`);
+    console.log(`✅ Pull completed! Total: ${totalFetched}, Created: ${created}, Updated: ${updated}, Failed: ${failed}`);
+
+    // Mark as completed
+    await prisma.pullProgress.update({
+      where: { id: "shopify_customers" },
+      data: {
+        isCompleted: true,
+        nextCursor: undefined,
+      },
+    });
 
     return NextResponse.json({
       success: true,
@@ -96,7 +133,29 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error: any) {
-    console.error("Error pulling Shopify customers:", error);
+    console.error("❌ Error pulling Shopify customers:", error);
+    
+    // Save error state
+    try {
+      await prisma.pullProgress.upsert({
+        where: { id: "shopify_customers" },
+        create: {
+          id: "shopify_customers",
+          nextCursor: cursor ? { cursor } : undefined,
+          totalPulled: totalFetched,
+          lastPulledAt: new Date(),
+          isCompleted: false,
+        },
+        update: {
+          nextCursor: cursor ? { cursor } : undefined,
+          totalPulled: totalFetched,
+          lastPulledAt: new Date(),
+        },
+      });
+    } catch (saveError) {
+      console.error("Failed to save error state:", saveError);
+    }
+
     return NextResponse.json(
       {
         success: false,

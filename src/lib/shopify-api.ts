@@ -29,38 +29,64 @@ class ShopifyAPI {
   }
 
   /**
-   * Execute GraphQL query
+   * Execute GraphQL query with retry logic for 502 errors
    */
   private async graphql<T>(
     query: string,
-    variables?: Record<string, any>
+    variables?: Record<string, any>,
+    retries: number = 3
   ): Promise<T> {
-    try {
-      const response = await axios.post<ShopifyGraphQLResponse<T>>(
-        this.graphqlEndpoint,
-        { query, variables },
-        {
-          headers: {
-            "X-Shopify-Access-Token": this.accessToken,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+    let lastError: any;
 
-      if (response.data.errors) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const response = await axios.post<ShopifyGraphQLResponse<T>>(
+          this.graphqlEndpoint,
+          { query, variables },
+          {
+            headers: {
+              "X-Shopify-Access-Token": this.accessToken,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        if (response.data.errors) {
+          throw new Error(
+            response.data.errors.map((e) => e.message).join(", ")
+          );
+        }
+
+        return response.data.data;
+      } catch (error: any) {
+        lastError = error;
+        const status = error.response?.status;
+
+        // Retry on 502 Bad Gateway or 503 Service Unavailable
+        if ((status === 502 || status === 503) && attempt < retries) {
+          const delay = attempt * 2000; // 2s, 4s, 6s
+          console.log(
+            `Shopify API ${status} error, retrying in ${delay}ms... (attempt ${attempt}/${retries})`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+
+        // Don't retry on other errors
         throw new Error(
-          response.data.errors.map((e) => e.message).join(", ")
+          error.response?.data?.errors?.[0]?.message ||
+            error.message ||
+            "Shopify API request failed"
         );
       }
-
-      return response.data.data;
-    } catch (error: any) {
-      throw new Error(
-        error.response?.data?.errors?.[0]?.message ||
-        error.message ||
-        "Shopify API request failed"
-      );
     }
+
+    // All retries failed
+    throw new Error(
+      lastError.response?.data?.errors?.[0]?.message ||
+        lastError.message ||
+        "Shopify API request failed after retries"
+    );
   }
 
   /**

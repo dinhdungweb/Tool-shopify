@@ -82,6 +82,19 @@ model AutoSyncConfig {
   @@map("auto_sync_config")
 }
 
+model PullProgress {
+  id        String   @id // "nhanh_customers" or "shopify_customers"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  nextCursor     Json?    // Store the next cursor for pagination
+  totalPulled    Int      @default(0)
+  lastPulledAt   DateTime?
+  isCompleted    Boolean  @default(false)
+
+  @@map("pull_progress")
+}
+
 model SyncLog {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())

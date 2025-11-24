@@ -29,142 +29,174 @@ export async function POST(request: NextRequest) {
       details: [] as any[],
     };
 
-    console.log(`Starting auto-match for ${unmappedCustomers.length} unmapped customers...`);
+    console.log(`🚀 Starting auto-match for ${unmappedCustomers.length} unmapped customers...`);
 
-    // Sample first 5 customers for debugging
-    if (unmappedCustomers.length > 0) {
-      console.log("Sample Nhanh customer phones:", unmappedCustomers.slice(0, 5).map(c => c.phone));
-      const sampleShopify = await prisma.shopifyCustomer.findMany({ take: 5, where: { phone: { not: null } } });
-      console.log("Sample Shopify customer phones:", sampleShopify.map(c => c.phone));
-    }
+    // Process in batches for better performance
+    const batchSize = 50;
+    const totalBatches = Math.ceil(unmappedCustomers.length / batchSize);
 
-    for (const customer of unmappedCustomers) {
-      if (!customer.phone) {
-        results.skipped++;
-        continue;
-      }
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const start = batchIndex * batchSize;
+      const end = Math.min(start + batchSize, unmappedCustomers.length);
+      const batch = unmappedCustomers.slice(start, end);
 
-      try {
-        // Normalize phone number (remove spaces, dashes, parentheses, +, etc.)
-        const normalizedPhone = customer.phone.replace(/[\s\-\(\)\+]/g, "");
-        
-        // Try multiple search strategies
-        // 1. Exact match on normalized phone
-        let shopifyCustomers = await prisma.shopifyCustomer.findMany({
-          where: {
-            phone: normalizedPhone,
-          },
-        });
+      console.log(`📦 Processing batch ${batchIndex + 1}/${totalBatches} (${batch.length} customers)...`);
 
-        // 2. If no exact match, try contains search
-        if (shopifyCustomers.length === 0) {
-          shopifyCustomers = await prisma.shopifyCustomer.findMany({
-            where: {
-              phone: {
-                contains: normalizedPhone,
-                mode: "insensitive",
-              },
-            },
-          });
+      // Process batch in parallel
+      const batchPromises = batch.map(async (customer) => {
+        if (!customer.phone) {
+          return { type: "skipped" };
         }
 
-        // 3. If still no match and phone starts with 0, try with +84
-        if (shopifyCustomers.length === 0 && normalizedPhone.startsWith("0")) {
-          const phoneWith84 = "+84" + normalizedPhone.substring(1);
-          shopifyCustomers = await prisma.shopifyCustomer.findMany({
+        try {
+          // Normalize phone number (remove spaces, dashes, parentheses, +, etc.)
+          const normalizedPhone = customer.phone.replace(/[\s\-\(\)\+]/g, "");
+          
+          // Try multiple search strategies
+          let shopifyCustomers = await prisma.shopifyCustomer.findMany({
             where: {
-              phone: {
-                contains: phoneWith84,
-                mode: "insensitive",
-              },
+              phone: normalizedPhone,
             },
           });
-        }
 
-        // 4. If still no match and phone starts with +84, try with 0
-        if (shopifyCustomers.length === 0 && normalizedPhone.startsWith("+84")) {
-          const phoneWith0 = "0" + normalizedPhone.substring(3);
-          shopifyCustomers = await prisma.shopifyCustomer.findMany({
-            where: {
-              phone: {
-                contains: phoneWith0,
-                mode: "insensitive",
-              },
-            },
-          });
-        }
-
-        // Only auto-match if exactly one customer found
-        if (shopifyCustomers.length === 1) {
-          const shopifyCustomer = shopifyCustomers[0];
-
-          if (!dryRun) {
-            // Create mapping
-            await prisma.customerMapping.create({
-              data: {
-                nhanhCustomerId: customer.id,
-                nhanhCustomerName: customer.name,
-                nhanhCustomerPhone: customer.phone,
-                nhanhCustomerEmail: customer.email,
-                nhanhTotalSpent: customer.totalSpent,
-                shopifyCustomerId: shopifyCustomer.id,
-                shopifyCustomerEmail: shopifyCustomer.email || undefined,
-                shopifyCustomerName: `${shopifyCustomer.firstName || ""} ${shopifyCustomer.lastName || ""}`.trim(),
-                syncStatus: SyncStatus.PENDING,
+          // If no exact match, try contains search
+          if (shopifyCustomers.length === 0) {
+            shopifyCustomers = await prisma.shopifyCustomer.findMany({
+              where: {
+                phone: {
+                  contains: normalizedPhone,
+                  mode: "insensitive",
+                },
               },
             });
           }
 
-          results.matched++;
-          results.details.push({
-            nhanhCustomer: {
-              id: customer.id,
-              name: customer.name,
-              phone: customer.phone,
+          // If still no match and phone starts with 0, try with +84
+          if (shopifyCustomers.length === 0 && normalizedPhone.startsWith("0")) {
+            const phoneWith84 = "+84" + normalizedPhone.substring(1);
+            shopifyCustomers = await prisma.shopifyCustomer.findMany({
+              where: {
+                phone: {
+                  contains: phoneWith84,
+                  mode: "insensitive",
+                },
+              },
+            });
+          }
+
+          // If still no match and phone starts with +84, try with 0
+          if (shopifyCustomers.length === 0 && normalizedPhone.startsWith("+84")) {
+            const phoneWith0 = "0" + normalizedPhone.substring(3);
+            shopifyCustomers = await prisma.shopifyCustomer.findMany({
+              where: {
+                phone: {
+                  contains: phoneWith0,
+                  mode: "insensitive",
+                },
+              },
+            });
+          }
+
+          // Only auto-match if exactly one customer found
+          if (shopifyCustomers.length === 1) {
+            const shopifyCustomer = shopifyCustomers[0];
+
+            if (!dryRun) {
+              // Create mapping
+              await prisma.customerMapping.create({
+                data: {
+                  nhanhCustomerId: customer.id,
+                  nhanhCustomerName: customer.name,
+                  nhanhCustomerPhone: customer.phone,
+                  nhanhCustomerEmail: customer.email,
+                  nhanhTotalSpent: customer.totalSpent,
+                  shopifyCustomerId: shopifyCustomer.id,
+                  shopifyCustomerEmail: shopifyCustomer.email || undefined,
+                  shopifyCustomerName: `${shopifyCustomer.firstName || ""} ${shopifyCustomer.lastName || ""}`.trim(),
+                  syncStatus: SyncStatus.PENDING,
+                },
+              });
+            }
+
+            return {
+              type: "matched",
+              detail: {
+                nhanhCustomer: {
+                  id: customer.id,
+                  name: customer.name,
+                  phone: customer.phone,
+                },
+                shopifyCustomer: {
+                  id: shopifyCustomer.id,
+                  name: `${shopifyCustomer.firstName || ""} ${shopifyCustomer.lastName || ""}`.trim(),
+                  email: shopifyCustomer.email,
+                },
+                status: "matched",
+              },
+            };
+          } else if (shopifyCustomers.length === 0) {
+            return {
+              type: "skipped",
+              detail: {
+                nhanhCustomer: {
+                  id: customer.id,
+                  name: customer.name,
+                  phone: customer.phone,
+                },
+                status: "no_match",
+                reason: "No Shopify customer found with this phone",
+              },
+            };
+          } else {
+            return {
+              type: "skipped",
+              detail: {
+                nhanhCustomer: {
+                  id: customer.id,
+                  name: customer.name,
+                  phone: customer.phone,
+                },
+                status: "multiple_matches",
+                reason: `Found ${shopifyCustomers.length} Shopify customers with this phone`,
+              },
+            };
+          }
+        } catch (error: any) {
+          console.error(`Error matching customer ${customer.id}:`, error);
+          return {
+            type: "failed",
+            detail: {
+              nhanhCustomer: {
+                id: customer.id,
+                name: customer.name,
+                phone: customer.phone,
+              },
+              status: "error",
+              error: error.message,
             },
-            shopifyCustomer: {
-              id: shopifyCustomer.id,
-              name: `${shopifyCustomer.firstName || ""} ${shopifyCustomer.lastName || ""}`.trim(),
-              email: shopifyCustomer.email,
-            },
-            status: "matched",
-          });
-        } else if (shopifyCustomers.length === 0) {
-          results.skipped++;
-          results.details.push({
-            nhanhCustomer: {
-              id: customer.id,
-              name: customer.name,
-              phone: customer.phone,
-            },
-            status: "no_match",
-            reason: "No Shopify customer found with this phone",
-          });
-        } else {
-          results.skipped++;
-          results.details.push({
-            nhanhCustomer: {
-              id: customer.id,
-              name: customer.name,
-              phone: customer.phone,
-            },
-            status: "multiple_matches",
-            reason: `Found ${shopifyCustomers.length} Shopify customers with this phone`,
-          });
+          };
         }
-      } catch (error: any) {
-        console.error(`Error matching customer ${customer.id}:`, error);
-        results.failed++;
-        results.details.push({
-          nhanhCustomer: {
-            id: customer.id,
-            name: customer.name,
-            phone: customer.phone,
-          },
-          status: "error",
-          error: error.message,
-        });
-      }
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+
+      // Aggregate results
+      batchResults.forEach((result) => {
+        if (result.type === "matched") {
+          results.matched++;
+          results.details.push(result.detail);
+        } else if (result.type === "skipped") {
+          results.skipped++;
+          if (result.detail) results.details.push(result.detail);
+        } else if (result.type === "failed") {
+          results.failed++;
+          if (result.detail) results.details.push(result.detail);
+        }
+      });
+
+      console.log(
+        `✅ Batch ${batchIndex + 1} completed: ${results.matched} matched, ${results.skipped} skipped, ${results.failed} failed`
+      );
     }
 
     return NextResponse.json({
