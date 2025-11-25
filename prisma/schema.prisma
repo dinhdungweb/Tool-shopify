@@ -273,3 +273,123 @@ enum ScheduleType {
   IMMEDIATE
   SCHEDULED
 }
+
+// ============================================
+// PRODUCT SYNC MODELS
+// ============================================
+
+model NhanhProduct {
+  id        String   @id // Nhanh product ID
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  name          String
+  sku           String?
+  barcode       String?
+  price         Decimal  @default(0) @db.Decimal(15, 2)
+  comparePrice  Decimal? @db.Decimal(15, 2)
+  quantity      Int      @default(0)
+  
+  // Additional info from Nhanh API
+  categoryId    String?
+  categoryName  String?
+  brandId       String?
+  brandName     String?
+  description   String?  @db.Text
+  images        Json?    // Array of image URLs
+  
+  // Metadata
+  lastPulledAt DateTime @default(now())
+
+  // Relation to mapping
+  mapping ProductMapping?
+
+  @@index([name])
+  @@index([sku])
+  @@index([barcode])
+  @@map("nhanh_products")
+}
+
+model ShopifyProduct {
+  id        String   @id // Shopify product ID
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  title         String
+  handle        String?
+  productType   String?
+  vendor        String?
+  tags          String[]
+  
+  // Variant info (for single variant products)
+  variantId     String?
+  sku           String?
+  barcode       String?
+  price         Decimal  @default(0) @db.Decimal(15, 2)
+  compareAtPrice Decimal? @db.Decimal(15, 2)
+  inventoryQuantity Int   @default(0)
+  
+  // Images
+  images        Json?    // Array of image URLs
+  
+  // Metadata
+  lastPulledAt DateTime @default(now())
+
+  @@index([title])
+  @@index([sku])
+  @@index([barcode])
+  @@map("shopify_products")
+}
+
+model ProductMapping {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Nhanh Product Info
+  nhanhProductId    String         @unique
+  nhanhProduct      NhanhProduct?  @relation(fields: [nhanhProductId], references: [id], onDelete: Cascade)
+  nhanhProductName  String
+  nhanhSku          String?
+  nhanhBarcode      String?
+  nhanhPrice        Decimal        @default(0) @db.Decimal(15, 2)
+
+  // Shopify Product Info
+  shopifyProductId    String?
+  shopifyVariantId    String?
+  shopifyProductTitle String?
+  shopifySku          String?
+  shopifyBarcode      String?
+
+  // Sync Status
+  syncStatus    SyncStatus @default(UNMAPPED)
+  lastSyncedAt  DateTime?
+  syncError     String?
+  syncAttempts  Int        @default(0)
+
+  // Sync History
+  syncLogs ProductSyncLog[]
+
+  @@index([nhanhProductId])
+  @@index([shopifyProductId])
+  @@index([syncStatus])
+  @@map("product_mappings")
+}
+
+model ProductSyncLog {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  mappingId String
+  mapping   ProductMapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+
+  action      SyncAction
+  status      SyncStatus
+  message     String?
+  errorDetail String?    @db.Text
+  metadata    Json?
+
+  @@index([mappingId])
+  @@index([createdAt])
+  @@map("product_sync_logs")
+}

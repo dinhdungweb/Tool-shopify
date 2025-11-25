@@ -4,7 +4,6 @@
 /node_modules
 /.pnp
 .pnp.js
-.yarn/install-state.gz
 
 # testing
 /coverage
@@ -26,9 +25,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
-.env*.local
 .env
-!.env.example
+.env*.local
 
 # vercel
 .vercel
@@ -37,6 +35,16 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# database
-/data/*.db
-/data/*.db-journal
+# IDE
+.vscode
+.idea
+
+# Database
+*.db
+*.db-journal
+
+# Test files
+test-*.js
+cleanup-*.js
+delete-*.js
+restore-*.js

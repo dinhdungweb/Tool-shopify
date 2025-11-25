@@ -423,3 +423,197 @@ export const saleClient = {
     });
   },
 };
+
+// Product Sync API calls
+export const productSyncClient = {
+  // Nhanh Products
+  async getNhanhProducts(params?: {
+    page?: number;
+    limit?: number;
+    keyword?: string;
+  }) {
+    const cleanParams: Record<string, string> = {};
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== "") {
+          cleanParams[key] = String(value);
+        }
+      });
+    }
+
+    const query = new URLSearchParams(cleanParams).toString();
+    return apiCall<any>(`/api/nhanh/products?${query}`);
+  },
+
+  async searchNhanhProducts(keyword: string) {
+    return apiCall<any[]>("/api/nhanh/search-products", {
+      method: "POST",
+      body: JSON.stringify({ keyword }),
+    });
+  },
+
+  async searchLocalNhanhProducts(keyword: string) {
+    const cleanParams: Record<string, string> = { keyword };
+    const query = new URLSearchParams(cleanParams).toString();
+    const result = await apiCall<{
+      products: any[];
+      total: number;
+      page: number;
+      limit: number;
+      totalPages: number;
+    }>(`/api/nhanh/local-products?${query}`);
+    return result.products;
+  },
+
+  async pullNhanhProducts() {
+    return apiCall<{
+      total: number;
+      created: number;
+      updated: number;
+    }>("/api/nhanh/pull-products", {
+      method: "POST",
+    });
+  },
+
+  async getLocalNhanhProducts(params?: {
+    page?: number;
+    limit?: number;
+    keyword?: string;
+    mappingStatus?: "mapped" | "unmapped";
+    syncStatus?: string;
+  }) {
+    const cleanParams: Record<string, string> = {};
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== "") {
+          cleanParams[key] = String(value);
+        }
+      });
+    }
+
+    const query = new URLSearchParams(cleanParams).toString();
+    return apiCall<{
+      products: any[];
+      total: number;
+      page: number;
+      limit: number;
+      totalPages: number;
+    }>(`/api/nhanh/local-products?${query}`);
+  },
+
+  // Shopify Products
+  async getLocalShopifyProducts(params?: {
+    page?: number;
+    limit?: number;
+    keyword?: string;
+    mappingStatus?: "mapped" | "unmapped";
+    syncStatus?: string;
+  }) {
+    const cleanParams: Record<string, string> = {};
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== "") {
+          cleanParams[key] = String(value);
+        }
+      });
+    }
+
+    const query = new URLSearchParams(cleanParams).toString();
+    return apiCall<{
+      products: any[];
+      total: number;
+      page: number;
+      limit: number;
+      totalPages: number;
+    }>(`/api/shopify/local-products?${query}`);
+  },
+
+  async searchShopifyProducts(params: {
+    keyword?: string;
+    sku?: string;
+    barcode?: string;
+  }) {
+    return apiCall<any[]>("/api/shopify/search-products", {
+      method: "POST",
+      body: JSON.stringify(params),
+    });
+  },
+
+  async pullShopifyProducts() {
+    return apiCall<{
+      total: number;
+      created: number;
+      updated: number;
+      failed: number;
+      message: string;
+    }>(`/api/shopify/pull-products-sync?t=${Date.now()}`, {
+      method: "POST",
+    });
+  },
+
+  // Product Mapping
+  async getProductMappings(params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+  }) {
+    const cleanParams: Record<string, string> = {};
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== "") {
+          cleanParams[key] = String(value);
+        }
+      });
+    }
+
+    const query = new URLSearchParams(cleanParams).toString();
+    return apiCall<{
+      mappings: any[];
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
+    }>(`/api/sync/product-mapping?${query}`);
+  },
+
+  async createProductMapping(data: {
+    nhanhProductId: string;
+    nhanhProductName: string;
+    nhanhSku?: string;
+    nhanhBarcode?: string;
+    nhanhPrice?: number;
+    shopifyProductId?: string;
+    shopifyVariantId?: string;
+    shopifyProductTitle?: string;
+    shopifySku?: string;
+    shopifyBarcode?: string;
+  }) {
+    return apiCall<any>("/api/sync/product-mapping", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateProductMapping(id: string, data: any) {
+    return apiCall<any>("/api/sync/product-mapping", {
+      method: "PATCH",
+      body: JSON.stringify({ id, ...data }),
+    });
+  },
+
+  async deleteProductMapping(id: string) {
+    return apiCall<{ message: string }>(`/api/sync/product-mapping?id=${id}`, {
+      method: "DELETE",
+    });
+  },
+
+  // Product Sync
+  async syncProduct(mappingId: string) {
+    return apiCall<any>("/api/sync/sync-product", {
+      method: "POST",
+      body: JSON.stringify({ mappingId }),
+    });
+  },
+};
