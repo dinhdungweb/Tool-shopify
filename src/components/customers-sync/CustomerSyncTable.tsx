@@ -27,6 +27,7 @@ export default function CustomerSyncTable() {
   const [filter, setFilter] = useState<"all" | "mapped" | "unmapped" | "pending" | "synced" | "failed">("all");
   const [syncedCount, setSyncedCount] = useState(0);
   const [pullDropdownOpen, setPullDropdownOpen] = useState(false);
+  const [shopifyPullDropdownOpen, setShopifyPullDropdownOpen] = useState(false);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const [selectDropdownOpen, setSelectDropdownOpen] = useState(false);
@@ -226,33 +227,35 @@ export default function CustomerSyncTable() {
   }
 
   async function handlePullShopifyCustomers() {
-    if (!confirm("Pull all Shopify customers to local database?\n\nThis will fetch all customers from Shopify and store them locally for faster matching.")) {
+    if (!confirm("Pull all Shopify customers in background?\n\n⚡ This will run in background and continue even if you close this page.\n\nCheck the server console logs for progress.")) {
       return;
     }
 
     try {
-      setLoading(true);
+      setPulling(true);
       const result = await shopifyClient.pullCustomers();
-      
-      alert(
-        `Pull completed!\n\nTotal: ${result.total}\nCreated: ${result.created}\nUpdated: ${result.updated}\nFailed: ${result.failed}`
-      );
+      alert(result?.message || "Background pull started! Check server logs for progress.");
+      setPage(1);
+      await loadData();
     } catch (error: any) {
       console.error("Error pulling Shopify customers:", error);
-      alert("Failed to pull Shopify customers: " + error.message);
+      alert("Failed to start pull: " + error.message);
     } finally {
-      setLoading(false);
+      setPulling(false);
     }
   }
 
   async function handleAutoMatch() {
-    if (!confirm("Auto-match unmapped customers by phone number?\n\nThis will search local Shopify customers database for matching phone numbers and create mappings automatically.")) {
+    if (!confirm("Auto-match unmapped customers by phone number?\n\n🚀 Using SQL JOIN for ultra-fast matching.\n\nThis will search local Shopify customers database for matching phone numbers and create mappings automatically.")) {
       return;
     }
 
     try {
       setLoading(true);
-      const result = await syncClient.autoMatch(false);
+      
+      // Always use SQL JOIN - fastest method for all dataset sizes
+      const result = await syncClient.autoMatchSQL(false);
+      
       await loadData();
       
       const details = result.details.filter((d: any) => d.status === "matched");
@@ -260,8 +263,10 @@ export default function CustomerSyncTable() {
         ? "\n\nMatched:\n" + details.map((d: any) => `- ${d.nhanhCustomer.name} → ${d.shopifyCustomer.name}`).join("\n")
         : "";
       
+      const durationText = result.duration ? `\nDuration: ${result.duration}` : "";
+      
       alert(
-        `Auto-match completed!\n\nTotal: ${result.total}\nMatched: ${result.matched}\nSkipped: ${result.skipped}\nFailed: ${result.failed}${detailsText}`
+        `Auto-match completed!${durationText}\n\nTotal: ${result.total}\nMatched: ${result.matched}\nSkipped: ${result.skipped}\nFailed: ${result.failed}${detailsText}`
       );
     } catch (error: any) {
       console.error("Error auto-matching:", error);
@@ -362,7 +367,7 @@ export default function CustomerSyncTable() {
           </div>
 
           <div className="flex gap-3">
-            {/* Pull Customers Dropdown */}
+            {/* Pull Nhanh Customers Dropdown */}
             <div className="relative">
               <button
                 onClick={() => setPullDropdownOpen(!pullDropdownOpen)}
@@ -379,7 +384,7 @@ export default function CustomerSyncTable() {
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                     </svg>
-                    Pull Customers
+                    Pull Nhanh Customers
                   </>
                 )}
                 <svg className={`h-4 w-4 transition-transform ${pullDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -437,7 +442,7 @@ export default function CustomerSyncTable() {
                         onClick={async () => {
                           if (confirm("Reset pull progress and start from beginning?")) {
                             try {
-                              const response = await fetch("/api/nhanh/reset-pull-progress", {
+                              const response = await fetch("/api/nhanh/reset-pull-progress?type=customers", {
                                 method: "POST",
                               });
                               const result = await response.json();
@@ -464,6 +469,27 @@ export default function CustomerSyncTable() {
                 </>
               )}
             </div>
+
+            {/* Pull Shopify Customers Button */}
+            <button
+              onClick={handlePullShopifyCustomers}
+              disabled={loading || pulling}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
+            >
+              {pulling ? (
+                <>
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600"></div>
+                  Pulling...
+                </>
+              ) : (
+                <>
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Pull Shopify Customers
+                </>
+              )}
+            </button>
 
             {/* More Actions Dropdown */}
             <div className="relative">
@@ -502,20 +528,6 @@ export default function CustomerSyncTable() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
                         Refresh
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          handlePullShopifyCustomers();
-                          setMoreActionsOpen(false);
-                        }}
-                        disabled={loading || pulling}
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
-                      >
-                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        Pull Shopify Customers
                       </button>
 
                       <button

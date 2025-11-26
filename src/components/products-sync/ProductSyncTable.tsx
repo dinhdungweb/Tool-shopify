@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { productSyncClient } from "@/lib/api-client";
+import { productSyncClient, syncClient } from "@/lib/api-client";
 import { ShopifyProduct } from "@/types/product";
 import SyncStatusBadge from "../customers-sync/SyncStatusBadge";
 import ProductMappingModal from "./ProductMappingModal";
+import GlobalProductAutoSyncSettings from "./GlobalProductAutoSyncSettings";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "../ui/table";
 import Checkbox from "../form/input/Checkbox";
 import { NhanhProduct } from "@prisma/client";
@@ -15,8 +16,10 @@ export default function ProductSyncTable() {
   const [loading, setLoading] = useState(true);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
+  const [autoSyncModalOpen, setAutoSyncModalOpen] = useState(false);
   const [currentProduct, setCurrentProduct] = useState<ShopifyProduct | null>(null);
   const [syncing, setSyncing] = useState<Set<string>>(new Set());
+  const [syncedCount, setSyncedCount] = useState(0);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
@@ -24,8 +27,10 @@ export default function ProductSyncTable() {
   const [keyword, setKeyword] = useState("");
   const [filter, setFilter] = useState<"all" | "mapped" | "unmapped" | "pending" | "synced" | "failed">("all");
   const [pullDropdownOpen, setPullDropdownOpen] = useState(false);
+  const [nhanhPullDropdownOpen, setNhanhPullDropdownOpen] = useState(false);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
+  const [selectDropdownOpen, setSelectDropdownOpen] = useState(false);
   const limit = 50;
 
   useEffect(() => {
@@ -57,10 +62,15 @@ export default function ProductSyncTable() {
 
       const mappingsData = await productSyncClient.getProductMappings({ page: 1, limit: 10000 });
       const mappingsMap = new Map<string, any>();
+      let syncedCounter = 0;
       mappingsData.mappings.forEach((m) => {
         mappingsMap.set(m.shopifyProductId, m);
+        if (m.syncStatus === "SYNCED") {
+          syncedCounter++;
+        }
       });
       setMappings(mappingsMap);
+      setSyncedCount(syncedCounter);
     } catch (error: any) {
       console.error("Error loading data:", error);
       alert("Failed to load data: " + error.message);
@@ -70,42 +80,157 @@ export default function ProductSyncTable() {
   }
 
   async function handlePullShopifyProducts() {
-    if (!confirm("Pull all products from Shopify?\n\nThis may take a few minutes.")) {
+    if (!confirm("Pull all products from Shopify in background?\n\n⚡ This will run in background and continue even if you close this page.\n\nCheck the server console logs for progress.")) {
       return;
     }
 
     try {
       setPulling(true);
       const result = await productSyncClient.pullShopifyProducts();
-      alert(
-        `Pull completed!\n\nTotal: ${result.total}\nCreated: ${result.created}\nUpdated: ${result.updated}\nFailed: ${result.failed}`
-      );
+      alert(result?.message || "Background pull started! Check server logs for progress.");
       setPage(1);
       await loadData();
     } catch (error: any) {
       console.error("Error pulling products:", error);
-      alert("Failed to pull products: " + error.message);
+      alert("Failed to start pull: " + error.message);
     } finally {
       setPulling(false);
     }
   }
 
+  async function handleResetPullProgress() {
+    if (!confirm("Reset pull progress?\n\nThis will clear the saved progress and next pull will start from beginning.")) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/shopify/reset-pull-progress?type=products", {
+        method: "POST",
+      });
+      const result = await response.json();
+      
+      if (result.success) {
+        alert(result.message);
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error: any) {
+      console.error("Error resetting progress:", error);
+      alert("Failed to reset: " + error.message);
+    }
+  }
+
   async function handlePullNhanhProducts() {
-    if (!confirm("Pull all products from Nhanh.vn?\n\nThis will help speed up product mapping.")) {
+    if (!confirm("Pull all products from Nhanh.vn in background?\n\n⚡ This will run in background and continue even if you close this page.\n\nCheck the server console logs for progress.")) {
       return;
     }
 
     try {
       setPulling(true);
       const result = await productSyncClient.pullNhanhProducts();
-      alert(
-        `Pull completed!\n\nTotal: ${result.total}\nCreated: ${result.created}\nUpdated: ${result.updated}`
-      );
+      alert(result?.message || "Background pull started! Check server logs for progress.");
+      setPage(1);
+      await loadData();
     } catch (error: any) {
       console.error("Error pulling Nhanh products:", error);
-      alert("Failed to pull Nhanh products: " + error.message);
+      alert("Failed to start pull: " + error.message);
     } finally {
       setPulling(false);
+    }
+  }
+
+  async function handleResetNhanhPullProgress() {
+    if (!confirm("Reset Nhanh pull progress?\n\nThis will clear the saved progress and next pull will start from beginning.")) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/nhanh/reset-pull-progress?type=products", {
+        method: "POST",
+      });
+      const result = await response.json();
+      
+      if (result.success) {
+        alert(result.message);
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error: any) {
+      console.error("Error resetting Nhanh progress:", error);
+      alert("Failed to reset: " + error.message);
+    }
+  }
+
+  async function handleAutoMatch() {
+    if (!confirm("Auto-match unmapped products by SKU?\n\n🚀 Using SQL JOIN for ultra-fast matching.\n\nThis will search local Shopify products database for matching SKUs and create mappings automatically.")) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      const result = await syncClient.autoMatchProducts(false);
+      
+      await loadData();
+      
+      const details = result.details.filter((d: any) => d.status === "matched");
+      const detailsText = details.length > 0 && details.length <= 10
+        ? "\n\nMatched:\n" + details.map((d: any) => `- ${d.nhanhProduct.name} (${d.nhanhProduct.sku}) → ${d.shopifyProduct.title} (${d.shopifyProduct.sku})`).join("\n")
+        : "";
+      
+      const durationText = result.duration ? `\nDuration: ${result.duration}` : "";
+      
+      alert(
+        `Auto-match completed!${durationText}\n\nTotal: ${result.total}\nMatched: ${result.matched}\nSkipped: ${result.skipped}\nFailed: ${result.failed}${detailsText}`
+      );
+    } catch (error: any) {
+      console.error("Error auto-matching products:", error);
+      alert("Failed to auto-match: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleBulkSync() {
+    const mappingIds = Array.from(selectedProducts)
+      .map((id) => mappings.get(id)?.id)
+      .filter((id): id is string => !!id);
+
+    if (mappingIds.length === 0) {
+      alert("Please select mapped products to sync");
+      return;
+    }
+
+    if (!confirm(`Sync inventory for ${mappingIds.length} products?\n\nThis will update inventory from Nhanh to Shopify.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      let successful = 0;
+      let failed = 0;
+
+      // Sync each product (products sync is fast, no need for bulk API)
+      for (const mappingId of mappingIds) {
+        try {
+          await productSyncClient.syncProduct(mappingId);
+          successful++;
+        } catch (error) {
+          console.error(`Failed to sync mapping ${mappingId}:`, error);
+          failed++;
+        }
+      }
+
+      await loadData();
+      alert(
+        `Bulk sync completed!\n\nSuccessful: ${successful}\nFailed: ${failed}`
+      );
+      setSelectedProducts(new Set());
+    } catch (error: any) {
+      console.error("Error bulk syncing products:", error);
+      alert("Failed to bulk sync: " + error.message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -119,7 +244,7 @@ export default function ProductSyncTable() {
     setSelectedProducts(newSelected);
   }
 
-  function openMappingModal(product: NhanhProduct) {
+  function openMappingModal(product: ShopifyProduct) {
     setCurrentProduct(product);
     setMappingModalOpen(true);
   }
@@ -206,47 +331,155 @@ export default function ProductSyncTable() {
           </div>
 
           <div className="flex gap-3">
-            {/* Pull Shopify Products Button */}
-            <button
-              onClick={handlePullShopifyProducts}
-              disabled={loading || pulling}
-              className="inline-flex items-center gap-2 rounded-lg border border-brand-500 bg-brand-50 px-4 py-2.5 text-sm font-medium text-brand-700 shadow-theme-xs hover:bg-brand-100 disabled:opacity-50 dark:border-brand-600 dark:bg-brand-900/20 dark:text-brand-400 dark:hover:bg-brand-900/30"
-            >
-              {pulling ? (
-                <>
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600"></div>
-                  Pulling...
-                </>
-              ) : (
-                <>
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  Pull Shopify Products
-                </>
-              )}
-            </button>
+            {/* Pull Shopify Products Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setPullDropdownOpen(!pullDropdownOpen)}
+                disabled={loading || pulling}
+                className="inline-flex items-center gap-2 rounded-lg border border-brand-500 bg-brand-50 px-4 py-2.5 text-sm font-medium text-brand-700 shadow-theme-xs hover:bg-brand-100 disabled:opacity-50 dark:border-brand-600 dark:bg-brand-900/20 dark:text-brand-400 dark:hover:bg-brand-900/30"
+              >
+                {pulling ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600"></div>
+                    Pulling...
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Pull Shopify Products
+                  </>
+                )}
+                <svg className={`h-4 w-4 transition-transform ${pullDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
 
-            {/* Pull Nhanh Products Button */}
-            <button
-              onClick={handlePullNhanhProducts}
-              disabled={loading || pulling}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
-            >
-              {pulling ? (
+              {pullDropdownOpen && (
                 <>
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600"></div>
-                  Pulling...
-                </>
-              ) : (
-                <>
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  Pull Nhanh Products
+                  <div 
+                    className="fixed inset-0 z-10" 
+                    onClick={() => setPullDropdownOpen(false)}
+                  />
+                  <div className="absolute left-0 z-20 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                    <div className="py-1">
+                      <button
+                        onClick={() => {
+                          handlePullShopifyProducts();
+                          setPullDropdownOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                        title="Pull all products from Shopify in background"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        <div className="flex-1 text-left">
+                          <div>Pull All Products</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Background sync</div>
+                        </div>
+                      </button>
+
+                      <div className="border-t border-gray-200 dark:border-gray-700"></div>
+                      
+                      <button
+                        onClick={() => {
+                          handleResetPullProgress();
+                          setPullDropdownOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        <div className="flex-1 text-left">
+                          <div>Reset Pull Progress</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Start from beginning</div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
                 </>
               )}
-            </button>
+            </div>
+
+            {/* Pull Nhanh Products Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setNhanhPullDropdownOpen(!nhanhPullDropdownOpen)}
+                disabled={loading || pulling}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
+              >
+                {pulling ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600"></div>
+                    Pulling...
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Pull Nhanh Products
+                  </>
+                )}
+                <svg className={`h-4 w-4 transition-transform ${nhanhPullDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {nhanhPullDropdownOpen && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-10" 
+                    onClick={() => setNhanhPullDropdownOpen(false)}
+                  />
+                  <div className="absolute left-0 z-20 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                    <div className="py-1">
+                      <button
+                        onClick={() => {
+                          handlePullNhanhProducts();
+                          setNhanhPullDropdownOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                        title="Pull all products from Nhanh.vn"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        <div className="flex-1 text-left">
+                          <div>Pull All Products</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">From Nhanh.vn</div>
+                        </div>
+                      </button>
+
+                      <div className="border-t border-gray-200 dark:border-gray-700"></div>
+                      
+                      <button
+                        onClick={() => {
+                          handleResetNhanhPullProgress();
+                          setNhanhPullDropdownOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        <div className="flex-1 text-left">
+                          <div>Reset Pull Progress</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Start from beginning</div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* More Actions Dropdown */}
             <div className="relative">
@@ -274,6 +507,34 @@ export default function ProductSyncTable() {
                     <div className="py-1">
                       <button
                         onClick={() => {
+                          handleAutoMatch();
+                          setMoreActionsOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                        </svg>
+                        Auto Match by SKU
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setAutoSyncModalOpen(true);
+                          setMoreActionsOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Auto-Sync Settings
+                      </button>
+
+                      <button
+                        onClick={() => {
                           setPage(1);
                           loadData();
                           setMoreActionsOpen(false);
@@ -291,6 +552,19 @@ export default function ProductSyncTable() {
                 </>
               )}
             </div>
+
+            {selectedProducts.size > 0 && (
+              <button
+                onClick={handleBulkSync}
+                disabled={loading || pulling}
+                className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white shadow-theme-xs hover:bg-brand-600 disabled:opacity-50"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Sync Selected ({selectedProducts.size})
+              </button>
+            )}
           </div>
         </div>
 
@@ -385,16 +659,84 @@ export default function ProductSyncTable() {
           <TableHeader className="border-gray-100 dark:border-gray-800 border-y bg-gray-50 dark:bg-gray-900">
             <TableRow>
               <TableCell isHeader className="w-12">
-                <Checkbox
-                  checked={selectedProducts.size === products.length && products.length > 0}
-                  onChange={() => {
-                    if (selectedProducts.size === products.length) {
-                      setSelectedProducts(new Set());
-                    } else {
-                      setSelectedProducts(new Set(products.map((p) => p.id)));
-                    }
-                  }}
-                />
+                <div className="relative">
+                  <Checkbox
+                    checked={selectedProducts.size === products.length && products.length > 0}
+                    onChange={() => setSelectDropdownOpen(!selectDropdownOpen)}
+                  />
+                  
+                  {selectDropdownOpen && (
+                    <>
+                      <div 
+                        className="fixed inset-0 z-10" 
+                        onClick={() => setSelectDropdownOpen(false)}
+                      />
+                      <div className="absolute left-0 z-20 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                        <div className="py-1">
+                          <button
+                            onClick={() => {
+                              setSelectedProducts(new Set(products.map((p) => p.id)));
+                              setSelectDropdownOpen(false);
+                            }}
+                            className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Select all on this page ({products.length})
+                          </button>
+
+                          <button
+                            onClick={async () => {
+                              if (confirm(`Select all ${total} products across all pages?`)) {
+                                try {
+                                  setLoading(true);
+                                  // Fetch all product IDs
+                                  const params: any = { page: 1, limit: total };
+                                  if (keyword) params.keyword = keyword;
+                                  if (filter === "mapped") {
+                                    params.mappingStatus = "mapped";
+                                  } else if (filter === "unmapped") {
+                                    params.mappingStatus = "unmapped";
+                                  } else if (filter !== "all") {
+                                    params.syncStatus = filter;
+                                  }
+                                  const allProducts = await productSyncClient.getLocalShopifyProducts(params);
+                                  setSelectedProducts(new Set(allProducts.products.map((p: any) => p.id)));
+                                  setSelectDropdownOpen(false);
+                                } catch (error) {
+                                  console.error("Error selecting all:", error);
+                                  alert("Failed to select all products");
+                                } finally {
+                                  setLoading(false);
+                                }
+                              }
+                            }}
+                            className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-brand-700 hover:bg-brand-50 dark:text-brand-400 dark:hover:bg-brand-900/20"
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                            </svg>
+                            Select all {total} products
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setSelectedProducts(new Set());
+                              setSelectDropdownOpen(false);
+                            }}
+                            className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            Unselect all
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
               </TableCell>
               <TableCell isHeader>Shopify Product</TableCell>
               <TableCell isHeader>Nhanh Product</TableCell>
@@ -608,6 +950,13 @@ export default function ProductSyncTable() {
           onMappingComplete={handleMappingComplete}
         />
       )}
+
+      {/* Auto-Sync Settings Modal */}
+      <GlobalProductAutoSyncSettings
+        isOpen={autoSyncModalOpen}
+        onClose={() => setAutoSyncModalOpen(false)}
+        syncedCount={syncedCount}
+      />
     </div>
   );
 }

@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const mappingStatus = searchParams.get("mappingStatus") || "";
     const syncStatus = searchParams.get("syncStatus") || "";
 
-    // Build where clause
+    // Build where clause for search
     const where: any = {};
 
     // Keyword search
@@ -27,46 +27,52 @@ export async function GET(request: NextRequest) {
       ];
     }
 
+    // Handle mapping/sync status filter
+    let productIds: string[] | undefined;
+    
+    if (syncStatus && syncStatus !== "all") {
+      // Get product IDs with specific sync status
+      const mappings = await prisma.productMapping.findMany({
+        where: { syncStatus: syncStatus.toUpperCase() as any },
+        select: { shopifyProductId: true },
+      });
+      productIds = mappings.map(m => m.shopifyProductId).filter((id): id is string => !!id);
+      where.id = { in: productIds };
+    } else if (mappingStatus === "mapped") {
+      // Get all mapped product IDs
+      const mappings = await prisma.productMapping.findMany({
+        where: { shopifyProductId: { not: null } },
+        select: { shopifyProductId: true },
+      });
+      productIds = mappings.map(m => m.shopifyProductId).filter((id): id is string => !!id);
+      where.id = { in: productIds };
+    } else if (mappingStatus === "unmapped") {
+      // Get all mapped product IDs to exclude
+      const mappings = await prisma.productMapping.findMany({
+        where: { shopifyProductId: { not: null } },
+        select: { shopifyProductId: true },
+      });
+      const mappedIds = mappings.map(m => m.shopifyProductId).filter((id): id is string => !!id);
+      where.id = { notIn: mappedIds };
+    }
+
     // Get total count
     const total = await prisma.shopifyProduct.count({ where });
 
     // Get products with pagination
     const products = await prisma.shopifyProduct.findMany({
       where,
-      orderBy: { updatedAt: "desc" },
+      orderBy: { lastPulledAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     });
-
-    // Get all mappings to check status
-    const productIds = products.map(p => p.id);
-    const mappings = await prisma.productMapping.findMany({
-      where: {
-        shopifyProductId: { in: productIds },
-      },
-    });
-
-    const mappingMap = new Map(mappings.map(m => [m.shopifyProductId, m]));
-
-    // Filter by mapping/sync status if needed
-    let filteredProducts = products;
-    if (mappingStatus === "mapped") {
-      filteredProducts = products.filter(p => mappingMap.has(p.id));
-    } else if (mappingStatus === "unmapped") {
-      filteredProducts = products.filter(p => !mappingMap.has(p.id));
-    } else if (syncStatus && syncStatus !== "all") {
-      filteredProducts = products.filter(p => {
-        const mapping = mappingMap.get(p.id);
-        return mapping && mapping.syncStatus === syncStatus.toUpperCase();
-      });
-    }
 
     const totalPages = Math.ceil(total / limit);
 
     return NextResponse.json({
       success: true,
       data: {
-        products: filteredProducts.map((p) => ({
+        products: products.map((p) => ({
           id: p.id,
           title: p.title,
           handle: p.handle,

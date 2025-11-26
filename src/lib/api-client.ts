@@ -164,10 +164,7 @@ export const shopifyClient = {
 
   async pullCustomers() {
     return apiCall<{
-      total: number;
-      created: number;
-      updated: number;
-      failed: number;
+      success: boolean;
       message: string;
     }>("/api/shopify/pull-customers", {
       method: "POST",
@@ -231,7 +228,7 @@ export const syncClient = {
     });
   },
 
-  async autoMatch(dryRun: boolean = false) {
+  async autoMatchSQL(dryRun: boolean = false) {
     return apiCall<{
       total: number;
       matched: number;
@@ -240,7 +237,26 @@ export const syncClient = {
       details: any[];
       dryRun: boolean;
       message: string;
-    }>("/api/sync/auto-match", {
+      duration: string;
+      method: string;
+    }>("/api/sync/auto-match-sql", {
+      method: "POST",
+      body: JSON.stringify({ dryRun }),
+    });
+  },
+
+  async autoMatchProducts(dryRun: boolean = false) {
+    return apiCall<{
+      total: number;
+      matched: number;
+      failed: number;
+      skipped: number;
+      details: any[];
+      dryRun: boolean;
+      message: string;
+      duration: string;
+      method: string;
+    }>("/api/sync/auto-match-products", {
       method: "POST",
       body: JSON.stringify({ dryRun }),
     });
@@ -467,9 +483,8 @@ export const productSyncClient = {
 
   async pullNhanhProducts() {
     return apiCall<{
-      total: number;
-      created: number;
-      updated: number;
+      success: boolean;
+      message: string;
     }>("/api/nhanh/pull-products", {
       method: "POST",
     });
@@ -541,10 +556,6 @@ export const productSyncClient = {
 
   async pullShopifyProducts() {
     return apiCall<{
-      total: number;
-      created: number;
-      updated: number;
-      failed: number;
       message: string;
     }>(`/api/shopify/pull-products-sync?t=${Date.now()}`, {
       method: "POST",

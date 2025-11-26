@@ -18,7 +18,7 @@ model NhanhCustomer {
   name       String
   phone      String?
   email      String?
-  totalSpent Decimal  @default(0) @db.Decimal(15, 2)
+  totalSpent Decimal  @default(0) @db.Decimal(18, 2)
   
   // Additional info from Nhanh API
   address    String?  @db.Text
@@ -35,6 +35,8 @@ model NhanhCustomer {
   @@index([name])
   @@index([phone])
   @@index([email])
+  @@index([totalSpent])
+  @@index([lastPulledAt])
   @@map("nhanh_customers")
 }
 
@@ -49,7 +51,7 @@ model CustomerMapping {
   nhanhCustomerName  String
   nhanhCustomerPhone String?
   nhanhCustomerEmail String?
-  nhanhTotalSpent    Decimal        @default(0) @db.Decimal(15, 2)
+  nhanhTotalSpent    Decimal        @default(0) @db.Decimal(18, 2)
 
   // Shopify Customer Info
   shopifyCustomerId    String?
@@ -122,7 +124,7 @@ model ShopifyCustomer {
   firstName  String?
   lastName   String?
   phone      String?
-  totalSpent Decimal  @default(0) @db.Decimal(15, 2)
+  totalSpent Decimal  @default(0) @db.Decimal(18, 2)
   ordersCount Int     @default(0)
   
   // Metadata
@@ -163,6 +165,7 @@ enum SyncAction {
   AUTO_SYNC
   WEBHOOK_SYNC
   BULK_SYNC
+  INVENTORY_UPDATE
 }
 
 // ============================================
@@ -307,6 +310,7 @@ model NhanhProduct {
   @@index([name])
   @@index([sku])
   @@index([barcode])
+  @@index([lastPulledAt])
   @@map("nhanh_products")
 }
 
@@ -338,6 +342,7 @@ model ShopifyProduct {
   @@index([title])
   @@index([sku])
   @@index([barcode])
+  @@index([lastPulledAt])
   @@map("shopify_products")
 }
 
@@ -392,4 +397,16 @@ model ProductSyncLog {
   @@index([mappingId])
   @@index([createdAt])
   @@map("product_sync_logs")
+}
+
+model SyncSchedule {
+  id        String   @id // e.g., "customer_auto_sync", "product_auto_sync"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enabled  Boolean @default(false)
+  schedule String  // Cron expression
+  type     String  // "CUSTOMER" or "PRODUCT"
+
+  @@map("sync_schedules")
 }

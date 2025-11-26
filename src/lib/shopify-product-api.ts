@@ -161,7 +161,7 @@ class ShopifyProductAPI {
       `;
 
       try {
-        const response = await this.client.post('/graphql.json', {
+        const response: any = await this.client.post('/graphql.json', {
           query,
           variables: { cursor },
         });

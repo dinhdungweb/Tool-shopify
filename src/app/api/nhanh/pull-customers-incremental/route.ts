@@ -33,79 +33,92 @@ export async function POST(request: NextRequest) {
 
       console.log(`📦 Fetched ${response.customers.length} customers`);
 
-      // Process batch in chunks to avoid connection pool issues
-      const chunkSize = 10;
-      for (let i = 0; i < response.customers.length; i += chunkSize) {
-        const chunk = response.customers.slice(i, i + chunkSize);
-
-        const chunkPromises = chunk.map(async (customer) => {
-          // Check if customer exists and when it was last pulled
-          const existing = await prisma.nhanhCustomer.findUnique({
-            where: { id: customer.id },
-            select: { lastPulledAt: true },
-          });
-
-          if (existing) {
-            // Customer exists - check if it needs update
-            const hoursSinceLastPull =
-              (now.getTime() - existing.lastPulledAt.getTime()) / (1000 * 60 * 60);
-
-            if (hoursSinceLastPull < 24) {
-              // Customer was pulled recently, skip
-              return { action: "skipped" };
-            }
-
-            // Update existing customer (not pulled in 24h)
-            await prisma.nhanhCustomer.update({
-              where: { id: customer.id },
-              data: {
-                name: customer.name,
-                phone: customer.phone || null,
-                email: customer.email || null,
-                totalSpent: customer.totalSpent,
-                address: customer.address || null,
-                city: customer.city || null,
-                district: customer.district || null,
-                ward: customer.ward || null,
-                lastPulledAt: now,
-              },
-            });
-            return { action: "updated" };
-          } else {
-            // New customer
-            await prisma.nhanhCustomer.create({
-              data: {
-                id: customer.id,
-                name: customer.name,
-                phone: customer.phone || null,
-                email: customer.email || null,
-                totalSpent: customer.totalSpent,
-                address: customer.address || null,
-                city: customer.city || null,
-                district: customer.district || null,
-                ward: customer.ward || null,
-                lastPulledAt: now,
-              },
-            });
-            return { action: "created" };
-          }
-        });
-
-        const chunkResults = await Promise.all(chunkPromises);
-        const chunkCreated = chunkResults.filter((r) => r.action === "created").length;
-        const chunkUpdated = chunkResults.filter((r) => r.action === "updated").length;
-        const chunkSkipped = chunkResults.filter((r) => r.action === "skipped").length;
-
-        created += chunkCreated;
-        updated += chunkUpdated;
-        skipped += chunkSkipped;
-
-        // Track consecutive skipped customers
-        if (chunkCreated > 0 || chunkUpdated > 0) {
-          consecutiveSkipped = 0; // Reset if we found new/updated customers
+      // Bulk check existing customers (optimized)
+      const customerIds = response.customers.map(c => c.id);
+      const existingCustomers = await prisma.nhanhCustomer.findMany({
+        where: { id: { in: customerIds } },
+        select: { id: true, lastPulledAt: true },
+      });
+      
+      const existingMap = new Map(existingCustomers.map(c => [c.id, c.lastPulledAt]));
+      
+      // Categorize customers
+      const toCreate: typeof response.customers = [];
+      const toUpdate: typeof response.customers = [];
+      const toSkip: typeof response.customers = [];
+      
+      for (const customer of response.customers) {
+        const lastPulled = existingMap.get(customer.id);
+        
+        if (!lastPulled) {
+          // New customer
+          toCreate.push(customer);
         } else {
-          consecutiveSkipped += chunkSkipped;
+          // Check if needs update
+          const hoursSinceLastPull = (now.getTime() - lastPulled.getTime()) / (1000 * 60 * 60);
+          
+          if (hoursSinceLastPull < 24) {
+            toSkip.push(customer);
+          } else {
+            toUpdate.push(customer);
+          }
         }
+      }
+      
+      // Bulk create new customers
+      if (toCreate.length > 0) {
+        await prisma.nhanhCustomer.createMany({
+          data: toCreate.map(customer => ({
+            id: customer.id,
+            name: customer.name,
+            phone: customer.phone || null,
+            email: customer.email || null,
+            totalSpent: customer.totalSpent,
+            address: customer.address || null,
+            city: customer.city || null,
+            district: customer.district || null,
+            ward: customer.ward || null,
+            lastPulledAt: now,
+          })),
+          skipDuplicates: true,
+        });
+        created += toCreate.length;
+      }
+      
+      // Bulk update existing customers (in batches)
+      if (toUpdate.length > 0) {
+        const updateBatchSize = 50;
+        for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
+          const batch = toUpdate.slice(i, i + updateBatchSize);
+          await prisma.$transaction(
+            batch.map(customer =>
+              prisma.nhanhCustomer.update({
+                where: { id: customer.id },
+                data: {
+                  name: customer.name,
+                  phone: customer.phone || null,
+                  email: customer.email || null,
+                  totalSpent: customer.totalSpent,
+                  address: customer.address || null,
+                  city: customer.city || null,
+                  district: customer.district || null,
+                  ward: customer.ward || null,
+                  lastPulledAt: now,
+                },
+              })
+            )
+          );
+        }
+        updated += toUpdate.length;
+      }
+      
+      skipped += toSkip.length;
+      
+      // Track consecutive skipped customers
+      if (toCreate.length > 0 || toUpdate.length > 0) {
+        consecutiveSkipped = 0; // Reset if we found new/updated customers
+      } else {
+        consecutiveSkipped += toSkip.length;
       }
 
       totalProcessed += response.customers.length;

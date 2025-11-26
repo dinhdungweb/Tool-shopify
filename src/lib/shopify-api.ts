@@ -62,6 +62,17 @@ class ShopifyAPI {
         lastError = error;
         const status = error.response?.status;
 
+        // Retry on 429 Rate Limit with exponential backoff
+        if (status === 429 && attempt < retries) {
+          const retryAfter = error.response?.headers?.['retry-after'];
+          const delay = retryAfter ? parseInt(retryAfter) * 1000 : Math.pow(2, attempt) * 1000; // Exponential: 2s, 4s, 8s
+          console.log(
+            `Shopify API rate limit (429), retrying in ${delay}ms... (attempt ${attempt}/${retries})`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+
         // Retry on 502 Bad Gateway or 503 Service Unavailable
         if ((status === 502 || status === 503) && attempt < retries) {
           const delay = attempt * 2000; // 2s, 4s, 6s
@@ -371,6 +382,106 @@ class ShopifyAPI {
         endCursor: data.customers.pageInfo.endCursor,
       },
     };
+  }
+
+  /**
+   * Update inventory quantity for a product variant
+   */
+  async updateInventory(variantId: string, quantity: number): Promise<void> {
+    const mutation = `
+      mutation inventorySetQuantities($input: InventorySetQuantitiesInput!) {
+        inventorySetQuantities(input: $input) {
+          inventoryAdjustmentGroup {
+            id
+            reason
+            changes {
+              name
+              delta
+            }
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    // Get inventory item ID from variant ID
+    const inventoryItemQuery = `
+      query getInventoryItem($id: ID!) {
+        productVariant(id: $id) {
+          inventoryItem {
+            id
+          }
+        }
+      }
+    `;
+
+    const variantData = await this.graphql<{
+      productVariant: {
+        inventoryItem: {
+          id: string;
+        };
+      };
+    }>(inventoryItemQuery, {
+      id: `gid://shopify/ProductVariant/${variantId}`,
+    });
+
+    const inventoryItemId = variantData.productVariant.inventoryItem.id;
+
+    // Get location ID (first available location)
+    const locationsQuery = `
+      query {
+        locations(first: 1) {
+          edges {
+            node {
+              id
+            }
+          }
+        }
+      }
+    `;
+
+    const locationsData = await this.graphql<{
+      locations: {
+        edges: Array<{
+          node: {
+            id: string;
+          };
+        }>;
+      };
+    }>(locationsQuery);
+
+    const locationId = locationsData.locations.edges[0].node.id;
+
+    // Update inventory
+    const result = await this.graphql<{
+      inventorySetQuantities: {
+        inventoryAdjustmentGroup: any;
+        userErrors: Array<{ field: string[]; message: string }>;
+      };
+    }>(mutation, {
+      input: {
+        reason: "correction",
+        name: "available",
+        quantities: [
+          {
+            inventoryItemId,
+            locationId,
+            quantity,
+          },
+        ],
+      },
+    });
+
+    if (result.inventorySetQuantities.userErrors.length > 0) {
+      throw new Error(
+        result.inventorySetQuantities.userErrors
+          .map((e) => e.message)
+          .join(", ")
+      );
+    }
   }
 }
 

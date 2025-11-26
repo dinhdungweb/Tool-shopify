@@ -75,52 +75,67 @@ async function pullAllCustomersInBackground() {
         `✅ Batch ${batchCount}: Fetched ${response.customers.length} customers`
       );
 
-      // Save batch to database in smaller chunks to avoid connection pool exhaustion
+      // Bulk upsert customers (optimized)
       let batchCreated = 0;
       let batchUpdated = 0;
-      const chunkSize = 10; // Process 10 customers at a time
       
-      for (let i = 0; i < response.customers.length; i += chunkSize) {
-        const chunk = response.customers.slice(i, i + chunkSize);
-        
-        const chunkPromises = chunk.map(async (customer) => {
-          const result = await prisma.nhanhCustomer.upsert({
-            where: { id: customer.id },
-            create: {
-              id: customer.id,
-              name: customer.name,
-              phone: customer.phone || null,
-              email: customer.email || null,
-              totalSpent: customer.totalSpent,
-              address: customer.address || null,
-              city: customer.city || null,
-              district: customer.district || null,
-              ward: customer.ward || null,
-              lastPulledAt: new Date(),
-            },
-            update: {
-              name: customer.name,
-              phone: customer.phone || null,
-              email: customer.email || null,
-              totalSpent: customer.totalSpent,
-              address: customer.address || null,
-              city: customer.city || null,
-              district: customer.district || null,
-              ward: customer.ward || null,
-              lastPulledAt: new Date(),
-            },
-          });
-
-          if (result.createdAt.getTime() === result.updatedAt.getTime()) {
-            return { created: true };
-          } else {
-            return { created: false };
-          }
+      // Get existing customer IDs in this batch
+      const existingIds = await prisma.nhanhCustomer.findMany({
+        where: {
+          id: { in: response.customers.map(c => c.id) }
+        },
+        select: { id: true }
+      });
+      
+      const existingIdSet = new Set(existingIds.map(c => c.id));
+      const toCreate = response.customers.filter(c => !existingIdSet.has(c.id));
+      const toUpdate = response.customers.filter(c => existingIdSet.has(c.id));
+      
+      // Bulk create new customers
+      if (toCreate.length > 0) {
+        await prisma.nhanhCustomer.createMany({
+          data: toCreate.map(customer => ({
+            id: customer.id,
+            name: customer.name,
+            phone: customer.phone || null,
+            email: customer.email || null,
+            totalSpent: customer.totalSpent,
+            address: customer.address || null,
+            city: customer.city || null,
+            district: customer.district || null,
+            ward: customer.ward || null,
+            lastPulledAt: new Date(),
+          })),
+          skipDuplicates: true,
         });
-
-        const chunkResults = await Promise.all(chunkPromises);
-        batchCreated += chunkResults.filter((r) => r.created).length;
-        batchUpdated += chunkResults.filter((r) => !r.created).length;
+        batchCreated = toCreate.length;
+      }
+      
+      // Bulk update existing customers (in batches)
+      if (toUpdate.length > 0) {
+        const updateBatchSize = 50;
+        for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
+          const batch = toUpdate.slice(i, i + updateBatchSize);
+          await prisma.$transaction(
+            batch.map(customer =>
+              prisma.nhanhCustomer.update({
+                where: { id: customer.id },
+                data: {
+                  name: customer.name,
+                  phone: customer.phone || null,
+                  email: customer.email || null,
+                  totalSpent: customer.totalSpent,
+                  address: customer.address || null,
+                  city: customer.city || null,
+                  district: customer.district || null,
+                  ward: customer.ward || null,
+                  lastPulledAt: new Date(),
+                },
+              })
+            )
+          );
+        }
+        batchUpdated = toUpdate.length;
       }
 
       totalCreated += batchCreated;
