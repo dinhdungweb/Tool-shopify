@@ -15,6 +15,15 @@ export async function register() {
       console.error('❌ Failed to initialize customer sync scheduler:', error);
     }
 
+    // Initialize product sync scheduler
+    try {
+      const { productScheduler } = await import('./lib/product-scheduler');
+      await productScheduler.initialize();
+      console.log('✅ Product sync scheduler initialized');
+    } catch (error) {
+      console.error('❌ Failed to initialize product sync scheduler:', error);
+    }
+
     // Initialize sale campaign scheduler
     try {
       const { saleScheduler } = await import('./lib/sale-scheduler');

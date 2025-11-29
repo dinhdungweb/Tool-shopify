@@ -90,6 +90,16 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Reinitialize scheduler with new config
+    try {
+      const { productScheduler } = await import('@/lib/product-scheduler');
+      await productScheduler.initialize();
+      console.log('Product scheduler reinitialized with new config');
+    } catch (error) {
+      console.error('Error reinitializing product scheduler:', error);
+      // Don't fail the request if scheduler fails
+    }
+
     return NextResponse.json({
       success: true,
       message: enabled

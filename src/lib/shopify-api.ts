@@ -299,15 +299,14 @@ class ShopifyAPI {
    * Format customer data from GraphQL response
    */
   private formatCustomer(node: any): ShopifyCustomer {
-    // Use phone from customer, fallback to defaultAddress phone
-    const phone = node.phone || node.defaultAddress?.phone || undefined;
-    
     return {
       id: node.id,
       email: node.email || "",
       firstName: node.firstName || "",
       lastName: node.lastName || "",
-      phone: phone,
+      phone: node.phone || undefined,
+      defaultAddressPhone: node.defaultAddress?.phone || undefined,
+      note: node.note || undefined,
       totalSpent: node.amountSpent?.amount || "0",
       ordersCount: node.numberOfOrders || 0,
       createdAt: node.createdAt,
@@ -323,9 +322,13 @@ class ShopifyAPI {
   }
 
   /**
-   * Get all customers (paginated)
+   * Get all customers (paginated) with optional filters
    */
-  async getAllCustomers(limit: number = 50, cursor?: string): Promise<{
+  async getAllCustomers(
+    limit: number = 50, 
+    cursor?: string,
+    query?: string
+  ): Promise<{
     customers: ShopifyCustomer[];
     pageInfo: {
       hasNextPage: boolean;
@@ -333,8 +336,8 @@ class ShopifyAPI {
     };
   }> {
     const graphqlQuery = `
-      query getCustomers($first: Int!, $after: String) {
-        customers(first: $first, after: $after) {
+      query getCustomers($first: Int!, $after: String, $query: String) {
+        customers(first: $first, after: $after, query: $query) {
           edges {
             node {
               id
@@ -342,6 +345,7 @@ class ShopifyAPI {
               firstName
               lastName
               phone
+              note
               createdAt
               updatedAt
               numberOfOrders
@@ -373,7 +377,7 @@ class ShopifyAPI {
           endCursor: string;
         };
       };
-    }>(graphqlQuery, { first: limit, after: cursor || null });
+    }>(graphqlQuery, { first: limit, after: cursor || null, query: query || null });
 
     return {
       customers: data.customers.edges.map((edge) => this.formatCustomer(edge.node)),

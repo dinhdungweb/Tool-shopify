@@ -6,6 +6,7 @@ export interface ShopifyCustomer {
   firstName: string;
   lastName: string;
   phone?: string;
+  defaultAddressPhone?: string;
   totalSpent: string;
   ordersCount: number;
   createdAt: string;

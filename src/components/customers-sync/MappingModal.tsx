@@ -38,16 +38,15 @@ export default function MappingModal({
       setSearching(true);
       setSearchResults([]);
       
-      // Determine if query is email or phone
-      const isEmail = searchQuery.includes("@");
-      const results = await shopifyClient.searchCustomers({
-        [isEmail ? "email" : "phone"]: searchQuery,
-      });
+      // Use local search to find in phone, defaultAddressPhone, note, and email
+      const results = await shopifyClient.searchLocal(searchQuery, 20);
       
       setSearchResults(results);
       
       if (results.length === 0) {
-        alert("No customers found in Shopify");
+        alert("No customers found");
+      } else if (results.length > 1) {
+        console.log(`Found ${results.length} customers matching "${searchQuery}"`);
       }
     } catch (error: any) {
       console.error("Error searching:", error);

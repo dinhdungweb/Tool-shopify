@@ -16,25 +16,27 @@ export async function POST(request: Request) {
     let deleted = 0;
 
     if (type === 'customers' || type === 'both') {
-      try {
-        await prisma.pullProgress.delete({
-          where: { id: "nhanh_customers" },
-        });
-        deleted++;
-      } catch (error: any) {
-        if (error.code !== "P2025") throw error;
-      }
+      // Delete all customer pull progress (including filtered ones)
+      const result = await prisma.pullProgress.deleteMany({
+        where: {
+          id: {
+            startsWith: "nhanh_customers"
+          }
+        }
+      });
+      deleted += result.count;
     }
 
     if (type === 'products' || type === 'both') {
-      try {
-        await prisma.pullProgress.delete({
-          where: { id: "nhanh_products" },
-        });
-        deleted++;
-      } catch (error: any) {
-        if (error.code !== "P2025") throw error;
-      }
+      // Delete all product pull progress
+      const result = await prisma.pullProgress.deleteMany({
+        where: {
+          id: {
+            startsWith: "nhanh_products"
+          }
+        }
+      });
+      deleted += result.count;
     }
 
     return NextResponse.json({

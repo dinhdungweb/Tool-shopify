@@ -37,49 +37,89 @@ export async function POST(request: NextRequest) {
       errors: [] as Array<{ mappingId: string; customerName: string; error: string }>,
     };
 
-    // Sync each mapping
-    for (const mapping of mappings) {
-      try {
-        console.log(`Auto syncing: ${mapping.nhanhCustomerName} (${mapping.id})`);
+    // Sync mappings in parallel batches for better performance
+    // Conservative settings to avoid rate limiting from Nhanh/Shopify APIs
+    const BATCH_SIZE = 5; // Process 5 customers at a time (safe for rate limits)
+    const BATCH_DELAY = 2000; // 2 second delay between batches (safe buffer)
+    
+    // Rate limit safety:
+    // - Nhanh API: ~40 requests/minute limit
+    // - Shopify API: 2 requests/second per store
+    // - With BATCH_SIZE=5 and BATCH_DELAY=2s: ~150 requests/minute (safe)
+    // - Each customer = 1 Nhanh call + 1 Shopify call = 2 API calls
+    // - 5 customers/batch × 2 calls = 10 API calls per batch
+    // - With 2s delay: 30 batches/minute = 150 customers/minute (safe)
+    
+    for (let i = 0; i < mappings.length; i += BATCH_SIZE) {
+      const batch = mappings.slice(i, i + BATCH_SIZE);
+      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(mappings.length / BATCH_SIZE);
+      
+      console.log(`Processing batch ${batchNumber}/${totalBatches} (${batch.length} customers)...`);
+      
+      // Process batch in parallel
+      const batchPromises = batch.map(async (mapping) => {
+        try {
+          console.log(`  Syncing: ${mapping.nhanhCustomerName}`);
 
-        // Call the sync API internally
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/sync/sync-customer`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ mappingId: mapping.id }),
+          const response = await fetch(
+            `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/sync/sync-customer`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ mappingId: mapping.id }),
+            }
+          );
+
+          const result = await response.json();
+
+          if (result.success) {
+            console.log(`  ✓ Synced: ${mapping.nhanhCustomerName}`);
+            return { success: true, mapping };
+          } else {
+            console.error(`  ✗ Failed: ${mapping.nhanhCustomerName}:`, result.error);
+            return {
+              success: false,
+              mapping,
+              error: result.error || 'Unknown error',
+            };
           }
-        );
+        } catch (error: any) {
+          console.error(`  ✗ Error: ${mapping.nhanhCustomerName}:`, error.message);
+          return {
+            success: false,
+            mapping,
+            error: error.message || 'Unknown error',
+          };
+        }
+      });
 
-        const result = await response.json();
-
+      // Wait for all in batch to complete
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Aggregate results
+      batchResults.forEach((result) => {
         if (result.success) {
           results.successful++;
-          console.log(`✓ Synced: ${mapping.nhanhCustomerName}`);
         } else {
           results.failed++;
           results.errors.push({
-            mappingId: mapping.id,
-            customerName: mapping.nhanhCustomerName,
+            mappingId: result.mapping.id,
+            customerName: result.mapping.nhanhCustomerName,
             error: result.error || 'Unknown error',
           });
-          console.error(`✗ Failed: ${mapping.nhanhCustomerName}:`, result.error);
         }
-      } catch (error: any) {
-        results.failed++;
-        results.errors.push({
-          mappingId: mapping.id,
-          customerName: mapping.nhanhCustomerName,
-          error: error.message || 'Unknown error',
-        });
-        console.error(`✗ Error syncing ${mapping.nhanhCustomerName}:`, error);
-      }
+      });
+      
+      console.log(`Batch ${batchNumber}/${totalBatches} completed: ${batchResults.filter(r => r.success).length} successful, ${batchResults.filter(r => !r.success).length} failed`);
 
-      // Small delay to avoid rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Delay between batches to avoid rate limiting
+      if (i + BATCH_SIZE < mappings.length) {
+        console.log(`Waiting ${BATCH_DELAY}ms before next batch...`);
+        await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY));
+      }
     }
 
     console.log('Global auto sync completed:', results);

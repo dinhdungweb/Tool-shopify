@@ -9,8 +9,12 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300; // Will continue in background
 
 export async function POST(request: NextRequest) {
+  // Get status filter from request body
+  const body = await request.json().catch(() => ({}));
+  const { status } = body; // "active", "draft", "archived", or undefined for all
+  
   // Start background process immediately
-  pullAllProductsBackground();
+  pullAllProductsBackground(status);
   
   return NextResponse.json({
     success: true,
@@ -18,8 +22,9 @@ export async function POST(request: NextRequest) {
   });
 }
 
-async function pullAllProductsBackground() {
-  console.log("🚀 Starting background pull of ALL Shopify products...");
+async function pullAllProductsBackground(status?: string) {
+  const statusFilter = status ? ` (status: ${status})` : "";
+  console.log(`🚀 Starting background pull of Shopify products${statusFilter}...`);
   
   const shopDomain = process.env.SHOPIFY_STORE_URL || "";
   const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || "";
@@ -41,12 +46,26 @@ async function pullAllProductsBackground() {
 
     let hasNextPage = true;
     cursor = progress?.nextCursor as string | null || null;
-    const resuming = !!cursor;
+    const resuming = !!cursor && !progress?.isCompleted;
+
+    if (progress) {
+      console.log(`📊 Found existing progress:`, {
+        cursor: cursor ? "exists" : "null",
+        totalPulled: progress.totalPulled,
+        isCompleted: progress.isCompleted,
+        willResume: resuming,
+      });
+    } else {
+      console.log(`🆕 No existing progress found, starting fresh`);
+    }
 
     if (resuming) {
       console.log(`🔄 Resuming from previous pull (${progress?.totalPulled || 0} products already pulled)`);
       totalFetched = progress?.totalPulled || 0;
+    } else if (progress?.isCompleted) {
+      console.log(`✅ Previous pull was completed, starting fresh pull`);
     }
+    
     while (hasNextPage) {
       pageCount++;
       const pageStartTime = Date.now();
@@ -54,9 +73,12 @@ async function pullAllProductsBackground() {
       try {
         console.log(`📦 Fetching page ${pageCount}...`);
 
+        // Build query filter based on status
+        const queryFilter = status ? `status:${status}` : "";
+        
         const query = `
           query getProducts($cursor: String) {
-            products(first: 50, after: $cursor, query: "status:active") {
+            products(first: 50, after: $cursor${queryFilter ? `, query: "${queryFilter}"` : ""}) {
               edges {
                 node {
                   id

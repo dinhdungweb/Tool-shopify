@@ -31,11 +31,17 @@ export async function GET(request: NextRequest) {
     // Combined mapping and sync status filter
     if (syncStatus && syncStatus !== "all") {
       // If filtering by sync status, we need a mapping with that status
-      where.mapping = {
-        syncStatus: syncStatus.toUpperCase(),
-      };
+      where.AND = [
+        { mapping: { isNot: null } },
+        { mapping: { syncStatus: syncStatus.toUpperCase() } },
+        { mapping: { shopifyCustomerId: { not: null } } },
+      ];
     } else if (mappingStatus === "mapped") {
-      where.mapping = { isNot: null };
+      // Only show customers with valid mappings (has shopifyCustomerId)
+      where.AND = [
+        { mapping: { isNot: null } },
+        { mapping: { shopifyCustomerId: { not: null } } },
+      ];
     } else if (mappingStatus === "unmapped") {
       where.mapping = null;
     }

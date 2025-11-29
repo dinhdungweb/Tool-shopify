@@ -14,21 +14,37 @@ async function apiCall<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  });
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+    });
 
-  const data = await response.json();
+    // Check if response is JSON
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      const text = await response.text();
+      console.error("Non-JSON response:", text.substring(0, 200));
+      throw new Error(`Server returned non-JSON response (${response.status}). Check server logs.`);
+    }
 
-  if (!response.ok || !data.success) {
-    throw new Error(data.error || "API request failed");
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || `API request failed (${response.status})`);
+    }
+
+    return data.data;
+  } catch (error: any) {
+    // Better error message for JSON parse errors
+    if (error.message.includes("JSON")) {
+      throw new Error("Server error: Invalid response format. Check server logs.");
+    }
+    throw error;
   }
-
-  return data.data;
 }
 
 // Nhanh.vn API calls
@@ -142,6 +158,11 @@ export const shopifyClient = {
     });
   },
 
+  async searchLocal(query: string, limit: number = 20) {
+    const params = new URLSearchParams({ query, limit: limit.toString() });
+    return apiCall<ShopifyCustomer[]>(`/api/shopify/search-local?${params}`);
+  },
+
   async getCustomerById(id: string) {
     return apiCall<ShopifyCustomer>(`/api/shopify/customer/${id}`);
   },
@@ -162,12 +183,13 @@ export const shopifyClient = {
     );
   },
 
-  async pullCustomers() {
+  async pullCustomers(query?: string) {
     return apiCall<{
       success: boolean;
       message: string;
     }>("/api/shopify/pull-customers", {
       method: "POST",
+      body: JSON.stringify({ query }),
     });
   },
 };
@@ -189,6 +211,23 @@ export const syncClient = {
 
   async getMappingById(id: string) {
     return apiCall<CustomerMappingData>(`/api/sync/mapping/${id}`);
+  },
+
+  async getMappingsByCustomerIds(customerIds: string[]) {
+    return apiCall<CustomerMappingData[]>("/api/sync/mappings-by-ids", {
+      method: "POST",
+      body: JSON.stringify({ customerIds }),
+    });
+  },
+
+  async getMappingStats() {
+    return apiCall<{
+      total: number;
+      synced: number;
+      pending: number;
+      failed: number;
+      unmapped: number;
+    }>("/api/sync/mapping-stats");
   },
 
   async createMapping(data: {
@@ -245,6 +284,20 @@ export const syncClient = {
     });
   },
 
+  async autoMatchBatch(dryRun: boolean = false, batchSize: number = 1000) {
+    return apiCall<{
+      total: number;
+      matched: number;
+      skipped: number;
+      dryRun: boolean;
+      message: string;
+      duration: string;
+    }>("/api/sync/auto-match-batch", {
+      method: "POST",
+      body: JSON.stringify({ dryRun, batchSize }),
+    });
+  },
+
   async autoMatchProducts(dryRun: boolean = false) {
     return apiCall<{
       total: number;
@@ -271,6 +324,16 @@ export const syncClient = {
 
   async bulkSync(mappingIds: string[]) {
     return apiCall<BulkSyncResult>("/api/sync/bulk-sync", {
+      method: "POST",
+      body: JSON.stringify({ mappingIds }),
+    });
+  },
+
+  async bulkSyncBackground(mappingIds: string[]) {
+    return apiCall<{
+      total: number;
+      message: string;
+    }>("/api/sync/bulk-sync-background", {
       method: "POST",
       body: JSON.stringify({ mappingIds }),
     });
@@ -554,11 +617,13 @@ export const productSyncClient = {
     });
   },
 
-  async pullShopifyProducts() {
+  async pullShopifyProducts(status?: string) {
     return apiCall<{
       message: string;
     }>(`/api/shopify/pull-products-sync?t=${Date.now()}`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
     });
   },
 

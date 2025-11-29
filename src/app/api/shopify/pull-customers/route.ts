@@ -6,22 +6,42 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes - but will continue in background
 
 /**
- * POST /api/shopify/pull-customers-all
- * Pull ALL Shopify customers in background with auto-resume
- * Perfect for large datasets (100k+ customers)
+ * POST /api/shopify/pull-customers
+ * Pull Shopify customers in background with optional filters
+ * 
+ * Body params:
+ * - query: Shopify search query (e.g. "state:ENABLED" for customers with accounts)
+ * 
+ * Examples:
+ * - All customers: {}
+ * - Only customers with accounts: { query: "state:ENABLED" }
+ * - Customers with email: { query: "email:*@gmail.com" }
  */
 export async function POST(request: NextRequest) {
-  // Start background process immediately and return
-  pullAllCustomersBackground();
-  
-  return NextResponse.json({
-    success: true,
-    message: "Background pull started! Check server logs for progress. The process will auto-resume if interrupted.",
-  });
+  try {
+    const body = await request.json().catch(() => ({}));
+    const { query } = body;
+    
+    // Start background process immediately and return
+    pullAllCustomersBackground(query);
+    
+    const filterMessage = query ? ` with filter: "${query}"` : "";
+    
+    return NextResponse.json({
+      success: true,
+      message: `Background pull started${filterMessage}! Check server logs for progress. The process will auto-resume if interrupted.`,
+    });
+  } catch (error: any) {
+    return NextResponse.json({
+      success: false,
+      error: error.message,
+    }, { status: 500 });
+  }
 }
 
-async function pullAllCustomersBackground() {
-  console.log("🚀 Starting background pull of ALL Shopify customers...");
+async function pullAllCustomersBackground(query?: string) {
+  const filterLog = query ? ` with filter: "${query}"` : "";
+  console.log(`🚀 Starting background pull of Shopify customers${filterLog}...`);
   
   let created = 0;
   let updated = 0;
@@ -32,8 +52,9 @@ async function pullAllCustomersBackground() {
   
   try {
     // Check for existing progress
+    const progressId = query ? `shopify_customers_${Buffer.from(query).toString('base64').substring(0, 20)}` : "shopify_customers";
     const progress = await prisma.pullProgress.findUnique({
-      where: { id: "shopify_customers" },
+      where: { id: progressId },
     });
 
     let hasNextPage = true;
@@ -53,7 +74,7 @@ async function pullAllCustomersBackground() {
       try {
         console.log(`📦 Fetching page ${pageCount}...`);
         
-        const result = await shopifyAPI.getAllCustomers(250, cursor || undefined);
+        const result = await shopifyAPI.getAllCustomers(250, cursor || undefined, query);
         const { customers: shopifyCustomers, pageInfo } = result;
         
         if (shopifyCustomers.length === 0) {
@@ -87,6 +108,8 @@ async function pullAllCustomersBackground() {
               firstName: customer.firstName || null,
               lastName: customer.lastName || null,
               phone: customer.phone || null,
+              defaultAddressPhone: customer.defaultAddressPhone || null,
+              note: customer.note || null,
               totalSpent: parseFloat(customer.totalSpent) || 0,
               ordersCount: parseInt(String(customer.ordersCount)) || 0,
               lastPulledAt: new Date(),
@@ -110,6 +133,8 @@ async function pullAllCustomersBackground() {
                     firstName: customer.firstName || null,
                     lastName: customer.lastName || null,
                     phone: customer.phone || null,
+                    defaultAddressPhone: customer.defaultAddressPhone || null,
+                    note: customer.note || null,
                     totalSpent: parseFloat(customer.totalSpent) || 0,
                     ordersCount: parseInt(String(customer.ordersCount)) || 0,
                     lastPulledAt: new Date(),
@@ -133,9 +158,9 @@ async function pullAllCustomersBackground() {
 
         // Save progress after each page
         await prisma.pullProgress.upsert({
-          where: { id: "shopify_customers" },
+          where: { id: progressId },
           create: {
-            id: "shopify_customers",
+            id: progressId,
             nextCursor: cursor ? cursor : undefined,
             totalPulled: totalFetched,
             lastPulledAt: new Date(),
@@ -165,9 +190,9 @@ async function pullAllCustomersBackground() {
         
         // Save progress even on error
         await prisma.pullProgress.upsert({
-          where: { id: "shopify_customers" },
+          where: { id: progressId },
           create: {
-            id: "shopify_customers",
+            id: progressId,
             nextCursor: cursor ? cursor : undefined,
             totalPulled: totalFetched,
             lastPulledAt: new Date(),
@@ -195,7 +220,7 @@ async function pullAllCustomersBackground() {
 
     // Mark as completed
     await prisma.pullProgress.update({
-      where: { id: "shopify_customers" },
+      where: { id: progressId },
       data: {
         isCompleted: true,
         nextCursor: undefined,
@@ -207,10 +232,11 @@ async function pullAllCustomersBackground() {
     
     // Save error state
     try {
+      const progressId = query ? `shopify_customers_${Buffer.from(query).toString('base64').substring(0, 20)}` : "shopify_customers";
       await prisma.pullProgress.upsert({
-        where: { id: "shopify_customers" },
+        where: { id: progressId },
         create: {
-          id: "shopify_customers",
+          id: progressId,
           nextCursor: cursor || undefined,
           totalPulled: totalFetched,
           lastPulledAt: new Date(),

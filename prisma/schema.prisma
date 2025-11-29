@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,26 +8,19 @@ datasource db {
 }
 
 model NhanhCustomer {
-  id        String   @id // Nhanh customer ID
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  name       String
-  phone      String?
-  email      String?
-  totalSpent Decimal  @default(0) @db.Decimal(18, 2)
-  
-  // Additional info from Nhanh API
-  address    String?  @db.Text
-  city       String?
-  district   String?
-  ward       String?
-  
-  // Metadata
-  lastPulledAt DateTime @default(now())
-
-  // Relation to mapping
-  mapping CustomerMapping?
+  id           String           @id
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  name         String
+  phone        String?
+  email        String?
+  totalSpent   Decimal          @default(0) @db.Decimal(18, 2)
+  address      String?
+  city         String?
+  district     String?
+  ward         String?
+  lastPulledAt DateTime         @default(now())
+  mapping      CustomerMapping?
 
   @@index([name])
   @@index([phone])
@@ -41,31 +31,23 @@ model NhanhCustomer {
 }
 
 model CustomerMapping {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Nhanh.vn Customer Info
-  nhanhCustomerId    String         @unique
-  nhanhCustomer      NhanhCustomer? @relation(fields: [nhanhCustomerId], references: [id], onDelete: Cascade)
-  nhanhCustomerName  String
-  nhanhCustomerPhone String?
-  nhanhCustomerEmail String?
-  nhanhTotalSpent    Decimal        @default(0) @db.Decimal(18, 2)
-
-  // Shopify Customer Info
+  id                   String        @id @default(cuid())
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  nhanhCustomerId      String        @unique
+  nhanhCustomerName    String
+  nhanhCustomerPhone   String?
+  nhanhCustomerEmail   String?
+  nhanhTotalSpent      Decimal       @default(0) @db.Decimal(18, 2)
   shopifyCustomerId    String?
   shopifyCustomerEmail String?
   shopifyCustomerName  String?
-
-  // Sync Status
-  syncStatus    SyncStatus @default(UNMAPPED)
-  lastSyncedAt  DateTime?
-  syncError     String?
-  syncAttempts  Int        @default(0)
-
-  // Sync History
-  syncLogs SyncLog[]
+  syncStatus           SyncStatus    @default(UNMAPPED)
+  lastSyncedAt         DateTime?
+  syncError            String?
+  syncAttempts         Int           @default(0)
+  nhanhCustomer        NhanhCustomer @relation(fields: [nhanhCustomerId], references: [id], onDelete: Cascade)
+  syncLogs             SyncLog[]
 
   @@index([nhanhCustomerId])
   @@index([shopifyCustomerId])
@@ -74,41 +56,38 @@ model CustomerMapping {
 }
 
 model AutoSyncConfig {
-  id        String   @id @default("global") // Only one global config
+  id        String   @id @default("global")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  enabled  Boolean @default(false)
-  schedule String  @default("0 */6 * * *") // Cron expression
+  enabled   Boolean  @default(false)
+  schedule  String   @default("0 */6 * * *")
 
   @@map("auto_sync_config")
 }
 
 model PullProgress {
-  id        String   @id // "nhanh_customers" or "shopify_customers"
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  nextCursor     Json?    // Store the next cursor for pagination
-  totalPulled    Int      @default(0)
-  lastPulledAt   DateTime?
-  isCompleted    Boolean  @default(false)
+  id           String    @id
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  nextCursor   Json?
+  totalPulled  Int       @default(0)
+  lastPulledAt DateTime?
+  isCompleted  Boolean   @default(false)
+  metadata     String?   // Store filter signature for smart incremental pull
 
   @@map("pull_progress")
 }
 
 model SyncLog {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-
-  mappingId String
-  mapping   CustomerMapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
-
+  id          String          @id @default(cuid())
+  createdAt   DateTime        @default(now())
+  mappingId   String
   action      SyncAction
   status      SyncStatus
   message     String?
-  errorDetail String?    @db.Text
+  errorDetail String?
   metadata    Json?
+  mapping     CustomerMapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
 
   @@index([mappingId])
   @@index([createdAt])
@@ -116,40 +95,202 @@ model SyncLog {
 }
 
 model ShopifyCustomer {
-  id        String   @id // Shopify customer ID
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  email      String?
-  firstName  String?
-  lastName   String?
-  phone      String?
-  totalSpent Decimal  @default(0) @db.Decimal(18, 2)
-  ordersCount Int     @default(0)
-  
-  // Metadata
-  lastPulledAt DateTime @default(now())
+  id                 String   @id
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  email              String?
+  firstName          String?
+  lastName           String?
+  phone              String?
+  defaultAddressPhone String?
+  note               String?  @db.Text
+  totalSpent         Decimal  @default(0) @db.Decimal(18, 2)
+  ordersCount        Int      @default(0)
+  lastPulledAt       DateTime @default(now())
 
   @@index([phone])
+  @@index([defaultAddressPhone])
   @@index([email])
   @@map("shopify_customers")
 }
 
 model WebhookLog {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-
-  source      String // "nhanh" or "shopify"
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now())
+  source      String
   eventType   String
   payload     Json
-  processed   Boolean  @default(false)
+  processed   Boolean   @default(false)
   processedAt DateTime?
-  error       String?  @db.Text
+  error       String?
 
   @@index([source])
   @@index([processed])
   @@index([createdAt])
   @@map("webhook_logs")
+}
+
+model SaleCampaign {
+  id              String         @id @default(cuid())
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  name            String
+  description     String?
+  status          CampaignStatus @default(DRAFT)
+  discountType    DiscountType
+  discountValue   Decimal        @db.Decimal(10, 2)
+  targetType      TargetType
+  targetIds       String[]
+  productType     String?
+  scheduleType    ScheduleType   @default(IMMEDIATE)
+  startDate       DateTime?
+  endDate         DateTime?
+  appliedAt       DateTime?
+  revertedAt      DateTime?
+  affectedCount   Int            @default(0)
+  errorMessage    String?
+  collectionTitle String?
+  priceChanges    PriceChange[]
+
+  @@index([status])
+  @@index([scheduleType])
+  @@index([startDate])
+  @@index([endDate])
+  @@map("sale_campaigns")
+}
+
+model PriceChange {
+  id                     String       @id @default(cuid())
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+  campaignId             String
+  productId              String
+  variantId              String
+  productTitle           String
+  variantTitle           String?
+  sku                    String?
+  originalPrice          Decimal      @db.Decimal(10, 2)
+  salePrice              Decimal      @db.Decimal(10, 2)
+  currentPrice           Decimal      @db.Decimal(10, 2)
+  applied                Boolean      @default(false)
+  appliedAt              DateTime?
+  reverted               Boolean      @default(false)
+  revertedAt             DateTime?
+  error                  String?
+  originalCompareAtPrice Decimal?     @db.Decimal(10, 2)
+  campaign               SaleCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([productId])
+  @@index([variantId])
+  @@index([applied])
+  @@index([reverted])
+  @@map("price_changes")
+}
+
+model NhanhProduct {
+  id           String          @id
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  name         String
+  sku          String?
+  barcode      String?
+  price        Decimal         @default(0) @db.Decimal(15, 2)
+  comparePrice Decimal?        @db.Decimal(15, 2)
+  quantity     Int             @default(0)
+  categoryId   String?
+  categoryName String?
+  brandId      String?
+  brandName    String?
+  description  String?
+  images       Json?
+  lastPulledAt DateTime        @default(now())
+  mapping      ProductMapping?
+
+  @@index([name])
+  @@index([sku])
+  @@index([barcode])
+  @@index([lastPulledAt])
+  @@map("nhanh_products")
+}
+
+model ShopifyProduct {
+  id                String   @id
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  title             String
+  handle            String?
+  productType       String?
+  vendor            String?
+  tags              String[]
+  variantId         String?
+  sku               String?
+  barcode           String?
+  price             Decimal  @default(0) @db.Decimal(15, 2)
+  compareAtPrice    Decimal? @db.Decimal(15, 2)
+  inventoryQuantity Int      @default(0)
+  images            Json?
+  lastPulledAt      DateTime @default(now())
+
+  @@index([title])
+  @@index([sku])
+  @@index([barcode])
+  @@index([lastPulledAt])
+  @@map("shopify_products")
+}
+
+model ProductMapping {
+  id                  String           @id @default(cuid())
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  nhanhProductId      String           @unique
+  nhanhProductName    String
+  nhanhSku            String?
+  nhanhBarcode        String?
+  nhanhPrice          Decimal          @default(0) @db.Decimal(15, 2)
+  shopifyProductId    String?
+  shopifyVariantId    String?
+  shopifyProductTitle String?
+  shopifySku          String?
+  shopifyBarcode      String?
+  syncStatus          SyncStatus       @default(UNMAPPED)
+  lastSyncedAt        DateTime?
+  syncError           String?
+  syncAttempts        Int              @default(0)
+  nhanhProduct        NhanhProduct     @relation(fields: [nhanhProductId], references: [id], onDelete: Cascade)
+  syncLogs            ProductSyncLog[]
+
+  @@index([nhanhProductId])
+  @@index([shopifyProductId])
+  @@index([syncStatus])
+  @@map("product_mappings")
+}
+
+model ProductSyncLog {
+  id          String         @id @default(cuid())
+  createdAt   DateTime       @default(now())
+  mappingId   String
+  action      SyncAction
+  status      SyncStatus
+  message     String?
+  errorDetail String?
+  metadata    Json?
+  mapping     ProductMapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+
+  @@index([mappingId])
+  @@index([createdAt])
+  @@map("product_sync_logs")
+}
+
+model SyncSchedule {
+  id        String   @id
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  enabled   Boolean  @default(false)
+  schedule  String
+  type      String
+
+  @@map("sync_schedules")
 }
 
 enum SyncStatus {
@@ -165,99 +306,19 @@ enum SyncAction {
   AUTO_SYNC
   WEBHOOK_SYNC
   BULK_SYNC
+  RETRY
   INVENTORY_UPDATE
-}
-
-// ============================================
-// SALE CAMPAIGN MODELS
-// ============================================
-
-model SaleCampaign {
-  id          String   @id @default(cuid())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  // Campaign Info
-  name        String
-  description String?  @db.Text
-  status      CampaignStatus @default(DRAFT)
-  
-  // Discount Settings
-  discountType   DiscountType // PERCENTAGE, FIXED_AMOUNT
-  discountValue  Decimal      @db.Decimal(10, 2)
-  
-  // Target Settings
-  targetType      TargetType   // PRODUCT, COLLECTION, PRODUCT_TYPE, ALL
-  targetIds       String[]     // Array of product/collection IDs
-  productType     String?      // For PRODUCT_TYPE target
-  collectionTitle String?      // For COLLECTION target - store collection name
-  
-  // Schedule Settings
-  scheduleType   ScheduleType @default(IMMEDIATE)
-  startDate      DateTime?
-  endDate        DateTime?
-  
-  // Execution Status
-  appliedAt      DateTime?
-  revertedAt     DateTime?
-  affectedCount  Int          @default(0)
-  errorMessage   String?      @db.Text
-  
-  // Relations
-  priceChanges   PriceChange[]
-  
-  @@index([status])
-  @@index([scheduleType])
-  @@index([startDate])
-  @@index([endDate])
-  @@map("sale_campaigns")
-}
-
-model PriceChange {
-  id          String   @id @default(cuid())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  campaignId  String
-  campaign    SaleCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  
-  // Product Info
-  productId       String
-  variantId       String
-  productTitle    String
-  variantTitle    String?
-  sku             String?
-  
-  // Price Info
-  originalPrice          Decimal  @db.Decimal(10, 2)
-  originalCompareAtPrice Decimal? @db.Decimal(10, 2)
-  salePrice              Decimal  @db.Decimal(10, 2)
-  currentPrice           Decimal  @db.Decimal(10, 2)
-  
-  // Status
-  applied         Boolean  @default(false)
-  appliedAt       DateTime?
-  reverted        Boolean  @default(false)
-  revertedAt      DateTime?
-  error           String?  @db.Text
-  
-  @@index([campaignId])
-  @@index([productId])
-  @@index([variantId])
-  @@index([applied])
-  @@index([reverted])
-  @@map("price_changes")
 }
 
 enum CampaignStatus {
   DRAFT
   SCHEDULED
-  APPLYING
   ACTIVE
-  REVERTING
   COMPLETED
   CANCELLED
   FAILED
+  APPLYING
+  REVERTING
 }
 
 enum DiscountType {
@@ -275,138 +336,4 @@ enum TargetType {
 enum ScheduleType {
   IMMEDIATE
   SCHEDULED
-}
-
-// ============================================
-// PRODUCT SYNC MODELS
-// ============================================
-
-model NhanhProduct {
-  id        String   @id // Nhanh product ID
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  name          String
-  sku           String?
-  barcode       String?
-  price         Decimal  @default(0) @db.Decimal(15, 2)
-  comparePrice  Decimal? @db.Decimal(15, 2)
-  quantity      Int      @default(0)
-  
-  // Additional info from Nhanh API
-  categoryId    String?
-  categoryName  String?
-  brandId       String?
-  brandName     String?
-  description   String?  @db.Text
-  images        Json?    // Array of image URLs
-  
-  // Metadata
-  lastPulledAt DateTime @default(now())
-
-  // Relation to mapping
-  mapping ProductMapping?
-
-  @@index([name])
-  @@index([sku])
-  @@index([barcode])
-  @@index([lastPulledAt])
-  @@map("nhanh_products")
-}
-
-model ShopifyProduct {
-  id        String   @id // Shopify product ID
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  title         String
-  handle        String?
-  productType   String?
-  vendor        String?
-  tags          String[]
-  
-  // Variant info (for single variant products)
-  variantId     String?
-  sku           String?
-  barcode       String?
-  price         Decimal  @default(0) @db.Decimal(15, 2)
-  compareAtPrice Decimal? @db.Decimal(15, 2)
-  inventoryQuantity Int   @default(0)
-  
-  // Images
-  images        Json?    // Array of image URLs
-  
-  // Metadata
-  lastPulledAt DateTime @default(now())
-
-  @@index([title])
-  @@index([sku])
-  @@index([barcode])
-  @@index([lastPulledAt])
-  @@map("shopify_products")
-}
-
-model ProductMapping {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Nhanh Product Info
-  nhanhProductId    String         @unique
-  nhanhProduct      NhanhProduct?  @relation(fields: [nhanhProductId], references: [id], onDelete: Cascade)
-  nhanhProductName  String
-  nhanhSku          String?
-  nhanhBarcode      String?
-  nhanhPrice        Decimal        @default(0) @db.Decimal(15, 2)
-
-  // Shopify Product Info
-  shopifyProductId    String?
-  shopifyVariantId    String?
-  shopifyProductTitle String?
-  shopifySku          String?
-  shopifyBarcode      String?
-
-  // Sync Status
-  syncStatus    SyncStatus @default(UNMAPPED)
-  lastSyncedAt  DateTime?
-  syncError     String?
-  syncAttempts  Int        @default(0)
-
-  // Sync History
-  syncLogs ProductSyncLog[]
-
-  @@index([nhanhProductId])
-  @@index([shopifyProductId])
-  @@index([syncStatus])
-  @@map("product_mappings")
-}
-
-model ProductSyncLog {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-
-  mappingId String
-  mapping   ProductMapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
-
-  action      SyncAction
-  status      SyncStatus
-  message     String?
-  errorDetail String?    @db.Text
-  metadata    Json?
-
-  @@index([mappingId])
-  @@index([createdAt])
-  @@map("product_sync_logs")
-}
-
-model SyncSchedule {
-  id        String   @id // e.g., "customer_auto_sync", "product_auto_sync"
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  enabled  Boolean @default(false)
-  schedule String  // Cron expression
-  type     String  // "CUSTOMER" or "PRODUCT"
-
-  @@map("sync_schedules")
 }

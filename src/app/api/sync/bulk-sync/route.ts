@@ -26,6 +26,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log(`🚀 Starting bulk sync for ${mappingIds.length} customers...`);
+    const startTime = Date.now();
+
     const results = {
       total: mappingIds.length,
       successful: 0,
@@ -33,98 +36,138 @@ export async function POST(request: NextRequest) {
       details: [] as any[],
     };
 
-    // Process each mapping
-    for (const mappingId of mappingIds) {
-      try {
-        const mapping = await prisma.customerMapping.findUnique({
-          where: { id: mappingId },
-        });
+    // Process in batches to respect API rate limits
+    // Shopify: 2 requests/second (REST), 50 points/second (GraphQL)
+    // Nhanh: Unknown, but be conservative
+    const batchSize = 5; // Process 5 customers in parallel (safer for rate limits)
+    const batchDelay = 1000; // 1 second delay between batches
+    const totalBatches = Math.ceil(mappingIds.length / batchSize);
 
-        if (!mapping || !mapping.shopifyCustomerId) {
-          results.failed++;
-          results.details.push({
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const start = batchIndex * batchSize;
+      const end = Math.min(start + batchSize, mappingIds.length);
+      const batchIds = mappingIds.slice(start, end);
+
+      console.log(`📦 Processing batch ${batchIndex + 1}/${totalBatches} (${batchIds.length} customers)...`);
+
+      // Process batch in parallel
+      const batchPromises = batchIds.map(async (mappingId) => {
+        try {
+          const mapping = await prisma.customerMapping.findUnique({
+            where: { id: mappingId },
+          });
+
+          if (!mapping || !mapping.shopifyCustomerId) {
+            return {
+              mappingId,
+              success: false,
+              error: "Mapping not found or no Shopify customer",
+            };
+          }
+
+          // Get latest total spent from Nhanh
+          const totalSpent = await nhanhAPI.getCustomerTotalSpent(
+            mapping.nhanhCustomerId
+          );
+
+          // Update Shopify metafield
+          await shopifyAPI.syncCustomerTotalSpent(
+            mapping.shopifyCustomerId,
+            totalSpent
+          );
+
+          // Update mapping
+          await prisma.customerMapping.update({
+            where: { id: mappingId },
+            data: {
+              nhanhTotalSpent: totalSpent,
+              syncStatus: SyncStatus.SYNCED,
+              lastSyncedAt: new Date(),
+              syncError: null,
+              syncAttempts: { increment: 1 },
+            },
+          });
+
+          // Create sync log
+          await prisma.syncLog.create({
+            data: {
+              mappingId: mapping.id,
+              action: SyncAction.BULK_SYNC,
+              status: SyncStatus.SYNCED,
+              message: `Bulk synced total spent: ${totalSpent}`,
+              metadata: {
+                totalSpent,
+                shopifyCustomerId: mapping.shopifyCustomerId,
+              },
+            },
+          });
+
+          return {
+            mappingId,
+            success: true,
+            totalSpent,
+          };
+        } catch (error: any) {
+          console.error(`Error syncing mapping ${mappingId}:`, error);
+
+          // Update mapping with error
+          try {
+            await prisma.customerMapping.update({
+              where: { id: mappingId },
+              data: {
+                syncStatus: SyncStatus.FAILED,
+                syncError: error.message,
+                syncAttempts: { increment: 1 },
+              },
+            });
+
+            // Create error log
+            await prisma.syncLog.create({
+              data: {
+                mappingId,
+                action: SyncAction.BULK_SYNC,
+                status: SyncStatus.FAILED,
+                message: "Bulk sync failed",
+                errorDetail: error.message,
+              },
+            });
+          } catch (logError) {
+            console.error("Error logging sync failure:", logError);
+          }
+
+          return {
             mappingId,
             success: false,
-            error: "Mapping not found or no Shopify customer",
-          });
-          continue;
+            error: error.message,
+          };
         }
+      });
 
-        // Get latest total spent from Nhanh
-        const totalSpent = await nhanhAPI.getCustomerTotalSpent(
-          mapping.nhanhCustomerId
-        );
+      // Wait for batch to complete
+      const batchResults = await Promise.all(batchPromises);
 
-        // Update Shopify metafield
-        await shopifyAPI.syncCustomerTotalSpent(
-          mapping.shopifyCustomerId,
-          totalSpent
-        );
+      // Aggregate results
+      batchResults.forEach((result) => {
+        if (result.success) {
+          results.successful++;
+        } else {
+          results.failed++;
+        }
+        results.details.push(result);
+      });
 
-        // Update mapping
-        await prisma.customerMapping.update({
-          where: { id: mappingId },
-          data: {
-            nhanhTotalSpent: totalSpent,
-            syncStatus: SyncStatus.SYNCED,
-            lastSyncedAt: new Date(),
-            syncError: null,
-            syncAttempts: { increment: 1 },
-          },
-        });
+      console.log(`  ✅ Batch ${batchIndex + 1} completed: ${results.successful} successful, ${results.failed} failed`);
 
-        // Create sync log
-        await prisma.syncLog.create({
-          data: {
-            mappingId: mapping.id,
-            action: SyncAction.BULK_SYNC,
-            status: SyncStatus.SYNCED,
-            message: `Bulk synced total spent: ${totalSpent}`,
-            metadata: {
-              totalSpent,
-              shopifyCustomerId: mapping.shopifyCustomerId,
-            },
-          },
-        });
-
-        results.successful++;
-        results.details.push({
-          mappingId,
-          success: true,
-          totalSpent,
-        });
-      } catch (error: any) {
-        console.error(`Error syncing mapping ${mappingId}:`, error);
-
-        // Update mapping with error
-        await prisma.customerMapping.update({
-          where: { id: mappingId },
-          data: {
-            syncStatus: SyncStatus.FAILED,
-            syncError: error.message,
-            syncAttempts: { increment: 1 },
-          },
-        });
-
-        // Create error log
-        await prisma.syncLog.create({
-          data: {
-            mappingId,
-            action: SyncAction.BULK_SYNC,
-            status: SyncStatus.FAILED,
-            message: "Bulk sync failed",
-            errorDetail: error.message,
-          },
-        });
-
-        results.failed++;
-        results.details.push({
-          mappingId,
-          success: false,
-          error: error.message,
-        });
+      // Add delay between batches to respect rate limits
+      if (batchIndex < totalBatches - 1) {
+        console.log(`  ⏳ Waiting ${batchDelay}ms before next batch...`);
+        await new Promise(resolve => setTimeout(resolve, batchDelay));
       }
     }
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    const speed = (results.total / parseFloat(duration)).toFixed(1);
+    console.log(`🎉 Bulk sync completed in ${duration}s (${speed} customers/sec)!`);
 
     return NextResponse.json({
       success: true,

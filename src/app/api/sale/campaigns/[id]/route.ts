@@ -101,6 +101,7 @@ export async function PATCH(
       scheduleType,
       startDate,
       endDate,
+      status,
     } = body;
 
     const updateData: any = {};
@@ -117,6 +118,7 @@ export async function PATCH(
       updateData.startDate = startDate ? new Date(startDate) : null;
     if (endDate !== undefined)
       updateData.endDate = endDate ? new Date(endDate) : null;
+    if (status !== undefined) updateData.status = status;
 
     const campaign = await prisma.saleCampaign.update({
       where: { id },

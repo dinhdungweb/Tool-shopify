@@ -1,47 +1,36 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 /**
  * POST /api/shopify/reset-pull-progress
- * Reset Shopify pull progress to start from beginning
- * Query param: type=customers|products (default: both)
+ * Reset Shopify pull progress (customers or products)
+ * Query param: ?type=customers or ?type=products (defaults to customers)
  */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const url = new URL(request.url);
-    const type = url.searchParams.get('type') || 'both';
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get("type") || "customers";
+    
+    const progressId = type === "products" ? "shopify_products" : "shopify_customers";
+    
+    // Delete the specific pull progress record
+    const deleted = await prisma.pullProgress.deleteMany({
+      where: {
+        id: progressId,
+      },
+    });
 
-    let deleted = 0;
-
-    if (type === 'customers' || type === 'both') {
-      try {
-        await prisma.pullProgress.delete({
-          where: { id: "shopify_customers" },
-        });
-        deleted++;
-      } catch (error: any) {
-        if (error.code !== "P2025") throw error;
-      }
-    }
-
-    if (type === 'products' || type === 'both') {
-      try {
-        await prisma.pullProgress.delete({
-          where: { id: "shopify_products" },
-        });
-        deleted++;
-      } catch (error: any) {
-        if (error.code !== "P2025") throw error;
-      }
-    }
+    console.log(`🔄 Reset Shopify ${type} pull progress: ${deleted.count} records deleted`);
 
     return NextResponse.json({
       success: true,
-      message: deleted > 0 
-        ? `Shopify ${type} pull progress reset. Next pull will start from beginning.`
-        : "No progress to reset.",
+      message: `Shopify ${type} pull progress reset successfully. ${deleted.count} progress record(s) deleted.`,
+      data: {
+        deletedCount: deleted.count,
+        type,
+      },
     });
   } catch (error: any) {
     console.error("Error resetting Shopify pull progress:", error);

@@ -79,14 +79,15 @@ export default function ProductSyncTable() {
     }
   }
 
-  async function handlePullShopifyProducts() {
-    if (!confirm("Pull all products from Shopify in background?\n\n⚡ This will run in background and continue even if you close this page.\n\nCheck the server console logs for progress.")) {
+  async function handlePullShopifyProducts(status?: string) {
+    const statusText = status ? ` (${status})` : " (all statuses)";
+    if (!confirm(`Pull${statusText} products from Shopify in background?\n\n⚡ This will run in background and continue even if you close this page.\n\nCheck the server console logs for progress.`)) {
       return;
     }
 
     try {
       setPulling(true);
-      const result = await productSyncClient.pullShopifyProducts();
+      const result = await productSyncClient.pullShopifyProducts(status);
       alert(result?.message || "Background pull started! Check server logs for progress.");
       setPage(1);
       await loadData();
@@ -99,18 +100,21 @@ export default function ProductSyncTable() {
   }
 
   async function handleResetPullProgress() {
-    if (!confirm("Reset pull progress?\n\nThis will clear the saved progress and next pull will start from beginning.")) {
+    if (!confirm("Reset pull progress?\n\nThis will clear the saved progress and next pull will start from beginning.\n\n⚠️ Wait a few seconds before pulling again after reset.")) {
       return;
     }
 
     try {
-      const response = await fetch("/api/shopify/reset-pull-progress?type=products", {
+      const response = await fetch(`/api/shopify/reset-pull-progress?type=products&t=${Date.now()}`, {
         method: "POST",
+        headers: {
+          "Cache-Control": "no-cache",
+        },
       });
       const result = await response.json();
       
       if (result.success) {
-        alert(result.message);
+        alert(result.message + "\n\n✅ Progress reset complete. You can now pull from beginning.");
       } else {
         throw new Error(result.error);
       }
@@ -371,14 +375,68 @@ export default function ProductSyncTable() {
                         }}
                         disabled={loading || pulling}
                         className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
-                        title="Pull all products from Shopify in background"
+                        title="Pull all products (active, draft, archived)"
                       >
                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                         </svg>
                         <div className="flex-1 text-left">
-                          <div>Pull All Products</div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">Background sync</div>
+                          <div>All Products</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">All statuses</div>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          handlePullShopifyProducts("active");
+                          setPullDropdownOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                        title="Pull only active products"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <div className="flex-1 text-left">
+                          <div>Active Products</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Published only</div>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          handlePullShopifyProducts("draft");
+                          setPullDropdownOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                        title="Pull only draft products"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        <div className="flex-1 text-left">
+                          <div>Draft Products</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Unpublished</div>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          handlePullShopifyProducts("archived");
+                          setPullDropdownOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                        title="Pull only archived products"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                        </svg>
+                        <div className="flex-1 text-left">
+                          <div>Archived Products</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Archived only</div>
                         </div>
                       </button>
 
@@ -507,6 +565,21 @@ export default function ProductSyncTable() {
                     <div className="py-1">
                       <button
                         onClick={() => {
+                          setPage(1);
+                          loadData();
+                          setMoreActionsOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Refresh
+                      </button>
+
+                      <button
+                        onClick={() => {
                           handleAutoMatch();
                           setMoreActionsOpen(false);
                         }}
@@ -531,21 +604,6 @@ export default function ProductSyncTable() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         Auto-Sync Settings
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setPage(1);
-                          loadData();
-                          setMoreActionsOpen(false);
-                        }}
-                        disabled={loading || pulling}
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
-                      >
-                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                        Refresh
                       </button>
                     </div>
                   </div>

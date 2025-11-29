@@ -140,7 +140,7 @@ export default function CreateCampaignModal({
         collectionTitle = collection?.title;
       }
 
-      // Create draft campaign
+      // Create draft campaign (without schedule info to prevent premature execution)
       const campaign = await saleClient.createCampaign({
         name,
         description,
@@ -150,9 +150,10 @@ export default function CreateCampaignModal({
         targetIds,
         productType: targetType === "PRODUCT_TYPE" ? productType : undefined,
         collectionTitle: collectionTitle,
-        scheduleType: scheduleType as ScheduleType,
-        startDate: startDate ? new Date(startDate) : undefined,
-        endDate: endDate ? new Date(endDate) : undefined,
+        // Don't set schedule info yet - only set when user confirms in step 4
+        scheduleType: "IMMEDIATE", // Temporary, will be updated in step 4
+        startDate: undefined,
+        endDate: undefined,
       });
 
       setTempCampaignId(campaign.id);
@@ -202,7 +203,14 @@ export default function CreateCampaignModal({
           alert(`Campaign applied successfully!\n\n✓ ${result.affectedCount} variants updated.`);
         }
       } else {
-        // Just save as scheduled
+        // Update campaign with schedule info and set status to SCHEDULED
+        await saleClient.updateCampaign(tempCampaignId, {
+          status: "SCHEDULED",
+          scheduleType: "SCHEDULED",
+          startDate: startDate ? new Date(startDate) : undefined,
+          endDate: endDate ? new Date(endDate) : undefined,
+        });
+        
         const startTime = new Date(startDate).toLocaleString("vi-VN", {
           day: "2-digit",
           month: "2-digit",
@@ -252,12 +260,20 @@ export default function CreateCampaignModal({
 
   async function handleClose() {
     // If a draft campaign was created but not applied/scheduled, delete it
+    // Only delete if still in DRAFT status (not SCHEDULED or ACTIVE)
     if (tempCampaignId !== null && step === 4) {
       try {
-        await saleClient.deleteCampaign(tempCampaignId);
-        console.log("Deleted draft campaign:", tempCampaignId);
+        // Check campaign status before deleting
+        const campaign = await saleClient.getCampaignById(tempCampaignId);
+        
+        if (campaign.status === "DRAFT") {
+          await saleClient.deleteCampaign(tempCampaignId);
+          console.log("Deleted draft campaign:", tempCampaignId);
+        } else {
+          console.log("Campaign already applied/scheduled, not deleting:", campaign.status);
+        }
       } catch (error) {
-        console.error("Error deleting draft campaign:", error);
+        console.error("Error handling draft campaign:", error);
       }
     }
     

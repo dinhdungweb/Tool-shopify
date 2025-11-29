@@ -79,7 +79,9 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    console.log('📝 Creating campaign...');
     const body = await request.json();
+    console.log('Request body:', JSON.stringify(body, null, 2));
 
     const {
       name,
@@ -166,6 +168,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log('✅ Validation passed, creating campaign...');
+    
     const campaign = await prisma.saleCampaign.create({
       data: {
         name,
@@ -183,12 +187,16 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    console.log('✅ Campaign created:', campaign.id);
+
     return NextResponse.json({
       success: true,
       data: campaign,
     });
   } catch (error: any) {
-    console.error("Error creating campaign:", error);
+    console.error("❌ Error creating campaign:", error);
+    console.error("Error details:", error.message);
+    console.error("Error stack:", error.stack);
     return NextResponse.json(
       {
         success: false,

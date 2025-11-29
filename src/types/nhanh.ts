@@ -26,6 +26,13 @@ export interface NhanhCustomerSearchParams {
   page?: number;
   limit?: number;
   next?: any; // Cursor for pagination
+  type?: number; // Customer type (1=Retail, 2=Wholesale, 3=Agent)
+  lastBoughtDateFrom?: string; // From date (yyyy-mm-dd)
+  lastBoughtDateTo?: string; // To date (yyyy-mm-dd)
+  mobile?: string; // Phone number
+  id?: number; // Customer ID
+  updatedAtFrom?: number; // Updated from (timestamp)
+  updatedAtTo?: number; // Updated to (timestamp)
 }
 
 export interface NhanhApiResponse<T> {

@@ -3,187 +3,216 @@ import { prisma } from "@/lib/prisma";
 import { SyncStatus } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 minutes timeout
+export const maxDuration = 300;
 
 /**
  * POST /api/sync/auto-match-sql
- * Ultra-optimized version using raw SQL with JOIN
- * Fastest method for very large datasets (200k+ records)
- * 
- * Strategy:
- * 1. Use SQL to find matches directly in database
- * 2. Handle phone normalization in SQL
- * 3. Bulk insert all mappings at once
+ * Ultra-fast SQL-based auto-match using database queries
+ * Perfect for large datasets (200k+ customers)
  */
 export async function POST(request: NextRequest) {
   try {
     const { dryRun = false } = await request.json();
 
-    console.log(`🚀 Starting SQL-optimized auto-match...`);
+    console.log("🚀 Starting SQL-based auto-match (ultra-fast for large datasets)...");
     const startTime = Date.now();
 
-    // Step 1: Find matches using raw SQL with phone normalization
-    console.log("🔍 Finding matches with SQL JOIN...");
-    
-    const matchQuery = `
-      SELECT 
-        nc.id as nhanh_id,
-        nc.name as nhanh_name,
-        nc.phone as nhanh_phone,
-        nc.email as nhanh_email,
-        nc."totalSpent" as nhanh_total_spent,
-        sc.id as shopify_id,
-        sc."firstName" as shopify_first_name,
-        sc."lastName" as shopify_last_name,
-        sc.email as shopify_email
-      FROM nhanh_customers nc
-      LEFT JOIN customer_mappings cm ON cm."nhanhCustomerId" = nc.id
-      INNER JOIN shopify_customers sc ON (
-        -- Exact match
-        nc.phone = sc.phone
-        OR
-        -- Nhanh: 0xxx, Shopify: +84xxx
-        (nc.phone LIKE '0%' AND sc.phone = '+84' || SUBSTRING(nc.phone, 2))
-        OR
-        -- Nhanh: +84xxx, Shopify: 0xxx
-        (nc.phone LIKE '+84%' AND sc.phone = '0' || SUBSTRING(nc.phone, 4))
-        OR
-        -- Shopify: 0xxx, Nhanh: +84xxx
-        (sc.phone LIKE '0%' AND nc.phone = '+84' || SUBSTRING(sc.phone, 2))
-        OR
-        -- Shopify: +84xxx, Nhanh: 0xxx
-        (sc.phone LIKE '+84%' AND nc.phone = '0' || SUBSTRING(sc.phone, 4))
-      )
-      WHERE 
-        cm.id IS NULL  -- Not yet mapped
-        AND nc.phone IS NOT NULL
-        AND sc.phone IS NOT NULL
+    // Step 1: Create temp table with phone variations
+    console.log("📊 Creating phone variations...");
+    await prisma.$executeRaw`
+      CREATE TEMP TABLE IF NOT EXISTS phone_matches (
+        nhanh_id TEXT,
+        shopify_id TEXT,
+        match_count INT
+      );
     `;
 
-    const matches: any[] = await prisma.$queryRawUnsafe(matchQuery);
+    // Step 2: Match by phone - optimized for large datasets
+    console.log("🔍 Matching by phone (this may take 30-60 seconds for 200k+ customers)...");
     
-    console.log(`✅ Found ${matches.length} potential matches`);
+    // First, get unmapped customers count
+    const unmappedCount = await prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*) as count 
+      FROM nhanh_customers n
+      WHERE n.phone IS NOT NULL 
+        AND n.phone != ''
+        AND NOT EXISTS (
+          SELECT 1 FROM customer_mappings cm WHERE cm."nhanhCustomerId" = n.id
+        );
+    `;
+    console.log(`  Found ${Number(unmappedCount[0].count)} unmapped Nhanh customers with phone`);
+    
+    // Match with multiple strategies
+    await prisma.$executeRaw`
+      INSERT INTO phone_matches (nhanh_id, shopify_id, match_count)
+      SELECT 
+        n.id as nhanh_id,
+        s.id as shopify_id,
+        1 as match_count
+      FROM nhanh_customers n
+      INNER JOIN shopify_customers s ON (
+        n.phone = s.phone 
+        OR n.phone = s."defaultAddressPhone"
+        OR ('84' || SUBSTRING(n.phone FROM 2)) = s.phone
+        OR ('84' || SUBSTRING(n.phone FROM 2)) = s."defaultAddressPhone"
+        OR n.phone = ('0' || SUBSTRING(s.phone FROM 3))
+        OR n.phone = ('0' || SUBSTRING(s."defaultAddressPhone" FROM 3))
+      )
+      WHERE n.phone IS NOT NULL
+        AND n.phone != ''
+        AND NOT EXISTS (
+          SELECT 1 FROM customer_mappings cm WHERE cm."nhanhCustomerId" = n.id
+        );
+    `;
+    
+    console.log("  ✅ Phone matching completed");
+    
+    // Count matches per Nhanh customer
+    await prisma.$executeRaw`
+      CREATE TEMP TABLE phone_matches_grouped AS
+      SELECT nhanh_id, shopify_id, COUNT(*) as match_count
+      FROM phone_matches
+      GROUP BY nhanh_id, shopify_id;
+    `;
+    
+    await prisma.$executeRaw`DROP TABLE phone_matches;`;
+    await prisma.$executeRaw`ALTER TABLE phone_matches_grouped RENAME TO phone_matches;`;
 
-    // Step 2: Filter to only exact 1-to-1 matches
-    const matchMap = new Map<string, any[]>();
-    matches.forEach((match) => {
-      if (!matchMap.has(match.nhanh_id)) {
-        matchMap.set(match.nhanh_id, []);
-      }
-      matchMap.get(match.nhanh_id)!.push(match);
-    });
+    // Count unique matches (only 1-to-1 matches)
+    const stats = await prisma.$queryRaw<Array<{ 
+      total: bigint;
+      unique_matches: bigint;
+      multiple_matches: bigint;
+    }>>`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE match_count = 1) as unique_matches,
+        COUNT(*) FILTER (WHERE match_count > 1) as multiple_matches
+      FROM (
+        SELECT nhanh_id, SUM(match_count) as match_count
+        FROM phone_matches
+        GROUP BY nhanh_id
+      ) grouped;
+    `;
 
-    const exactMatches = Array.from(matchMap.entries())
-      .filter(([_, matches]) => matches.length === 1)
-      .map(([_, matches]) => matches[0]);
+    const uniqueMatches = Number(stats[0].unique_matches);
+    const multipleMatches = Number(stats[0].multiple_matches);
+    
+    console.log(`✅ Matching results:`);
+    console.log(`   - Unique matches (1-to-1): ${uniqueMatches}`);
+    console.log(`   - Multiple matches (skipped): ${multipleMatches}`);
 
-    console.log(`✅ Filtered to ${exactMatches.length} exact 1-to-1 matches`);
+    if (dryRun) {
+      // Show sample matches
+      const samples = await prisma.$queryRaw<Array<{
+        nhanh_id: string;
+        nhanh_name: string;
+        nhanh_phone: string;
+        shopify_id: string;
+        shopify_name: string;
+      }>>`
+        SELECT 
+          pm.nhanh_id,
+          n.name as nhanh_name,
+          n.phone as nhanh_phone,
+          pm.shopify_id,
+          (COALESCE(s."firstName", '') || ' ' || COALESCE(s."lastName", '')) as shopify_name
+        FROM phone_matches pm
+        INNER JOIN nhanh_customers n ON n.id = pm.nhanh_id
+        INNER JOIN shopify_customers s ON s.id = pm.shopify_id
+        WHERE pm.nhanh_id IN (
+          SELECT nhanh_id 
+          FROM phone_matches 
+          GROUP BY nhanh_id 
+          HAVING SUM(match_count) = 1
+        )
+        LIMIT 10;
+      `;
 
-    const results = {
-      total: matchMap.size,
-      matched: exactMatches.length,
-      failed: 0,
-      skipped: matchMap.size - exactMatches.length,
-      // Only return first 100 details to avoid huge response
-      // But ALL matches will be created in database
-      details: exactMatches.slice(0, 100).map((match) => ({
-        nhanhCustomer: {
-          id: match.nhanh_id,
-          name: match.nhanh_name,
-          phone: match.nhanh_phone,
+      await prisma.$executeRaw`DROP TABLE IF EXISTS phone_matches;`;
+      
+      const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          total: uniqueMatches,
+          matched: uniqueMatches,
+          skipped: multipleMatches,
+          samples,
+          duration: `${duration}s`,
+          dryRun: true,
+          message: `Dry run: Found ${uniqueMatches} potential matches in ${duration}s`,
         },
-        shopifyCustomer: {
-          id: match.shopify_id,
-          name: `${match.shopify_first_name || ""} ${match.shopify_last_name || ""}`.trim(),
-          email: match.shopify_email,
-        },
-        status: "matched",
-      })),
-    };
-
-    // Step 3: Bulk create mappings in batches to avoid query size limits
-    if (!dryRun && exactMatches.length > 0) {
-      console.log(`💾 Creating ${exactMatches.length} mappings in batches...`);
-      
-      const batchSize = 500; // Insert 500 records per batch
-      const totalBatches = Math.ceil(exactMatches.length / batchSize);
-      let createdCount = 0;
-      
-      for (let i = 0; i < totalBatches; i++) {
-        const start = i * batchSize;
-        const end = Math.min(start + batchSize, exactMatches.length);
-        const batch = exactMatches.slice(start, end);
-        
-        // Build VALUES clause for this batch
-        const values = batch.map((match) => {
-          const nhanhName = (match.nhanh_name || '').replace(/'/g, "''");
-          const nhanhPhone = (match.nhanh_phone || '').replace(/'/g, "''");
-          const nhanhEmail = (match.nhanh_email || '').replace(/'/g, "''");
-          const shopifyName = `${match.shopify_first_name || ""} ${match.shopify_last_name || ""}`.trim().replace(/'/g, "''");
-          const shopifyEmail = (match.shopify_email || '').replace(/'/g, "''");
-          
-          return `(
-            gen_random_uuid(),
-            NOW(),
-            NOW(),
-            '${match.nhanh_id}',
-            '${nhanhName}',
-            ${match.nhanh_phone ? `'${nhanhPhone}'` : 'NULL'},
-            ${match.nhanh_email ? `'${nhanhEmail}'` : 'NULL'},
-            ${match.nhanh_total_spent || 0},
-            '${match.shopify_id}',
-            ${match.shopify_email ? `'${shopifyEmail}'` : 'NULL'},
-            '${shopifyName}',
-            'PENDING',
-            0
-          )`;
-        }).join(',\n');
-
-        const insertQuery = `
-          INSERT INTO customer_mappings (
-            id,
-            "createdAt",
-            "updatedAt",
-            "nhanhCustomerId",
-            "nhanhCustomerName",
-            "nhanhCustomerPhone",
-            "nhanhCustomerEmail",
-            "nhanhTotalSpent",
-            "shopifyCustomerId",
-            "shopifyCustomerEmail",
-            "shopifyCustomerName",
-            "syncStatus",
-            "syncAttempts"
-          )
-          VALUES ${values}
-          ON CONFLICT ("nhanhCustomerId") DO NOTHING
-        `;
-
-        await prisma.$executeRawUnsafe(insertQuery);
-        createdCount += batch.length;
-        console.log(`  ✅ Batch ${i + 1}/${totalBatches}: Created ${batch.length} mappings (total: ${createdCount}/${exactMatches.length})`);
-      }
-      
-      console.log(`✅ Bulk insert completed: ${createdCount} mappings created`);
+      });
     }
 
+    // Step 3: Create mappings for unique matches only (1-to-1)
+    console.log("💾 Creating mappings for unique matches...");
+    const result = await prisma.$executeRaw`
+      INSERT INTO customer_mappings (
+        id,
+        "createdAt",
+        "updatedAt",
+        "nhanhCustomerId",
+        "nhanhCustomerName",
+        "nhanhCustomerPhone",
+        "nhanhCustomerEmail",
+        "nhanhTotalSpent",
+        "shopifyCustomerId",
+        "shopifyCustomerEmail",
+        "shopifyCustomerName",
+        "syncStatus"
+      )
+      SELECT 
+        gen_random_uuid(),
+        NOW(),
+        NOW(),
+        pm.nhanh_id,
+        n.name,
+        n.phone,
+        n.email,
+        n."totalSpent",
+        pm.shopify_id,
+        s.email,
+        (COALESCE(s."firstName", '') || ' ' || COALESCE(s."lastName", '')),
+        'PENDING'
+      FROM phone_matches pm
+      INNER JOIN nhanh_customers n ON n.id = pm.nhanh_id
+      INNER JOIN shopify_customers s ON s.id = pm.shopify_id
+      WHERE pm.nhanh_id IN (
+        SELECT nhanh_id 
+        FROM phone_matches 
+        GROUP BY nhanh_id 
+        HAVING SUM(match_count) = 1
+      )
+      ON CONFLICT ("nhanhCustomerId") DO NOTHING;
+    `;
+
+    // Clean up
+    await prisma.$executeRaw`DROP TABLE IF EXISTS phone_matches;`;
+
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.log(`✅ SQL auto-match completed in ${duration}s`);
+    console.log(`🎉 Auto-match completed in ${duration}s! Created ${result} mappings`);
 
     return NextResponse.json({
       success: true,
       data: {
-        ...results,
-        dryRun,
+        matched: Number(result),
         duration: `${duration}s`,
-        method: "SQL JOIN",
-        message: dryRun
-          ? `Dry run completed in ${duration}s: ${results.matched} potential matches found`
-          : `Auto-match completed in ${duration}s: ${results.matched} customers matched using SQL JOIN`,
+        message: `SQL-based auto-match completed: ${result} customers matched in ${duration}s`,
       },
     });
   } catch (error: any) {
     console.error("Error in SQL auto-match:", error);
+    
+    // Clean up on error
+    try {
+      await prisma.$executeRaw`DROP TABLE IF EXISTS phone_matches;`;
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+
     return NextResponse.json(
       {
         success: false,

@@ -36,31 +36,55 @@ class NhanhAPI {
    */
   private async request<T>(
     endpoint: string,
-    data: Record<string, any> = {}
+    data: Record<string, any> = {},
+    retries: number = 3
   ): Promise<T> {
-    try {
-      // Build URL with query params
-      const url = `${endpoint}?appId=${this.appId}&businessId=${this.businessId}`;
+    let lastError: any;
 
-      const response = await this.client.post(url, data, {
-        headers: {
-          'Authorization': this.accessToken,
-          'Content-Type': 'application/json',
-        },
-      });
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        // Build URL with query params
+        const url = `${endpoint}?appId=${this.appId}&businessId=${this.businessId}`;
 
-      if (response.data.code !== 1) {
-        throw new Error(response.data.messages || response.data.errorCode || "Nhanh API request failed");
+        const response = await this.client.post(url, data, {
+          headers: {
+            'Authorization': this.accessToken,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.data.code !== 1) {
+          throw new Error(response.data.messages || response.data.errorCode || "Nhanh API request failed");
+        }
+
+        // Return the full response data (includes data array and paginator)
+        return response.data as T;
+      } catch (error: any) {
+        lastError = error;
+        const status = error.response?.status;
+
+        // Retry on 429 Rate Limit or 5xx errors
+        if ((status === 429 || status >= 500) && attempt < retries) {
+          const delay = Math.pow(2, attempt) * 1000; // Exponential: 2s, 4s, 8s
+          console.log(
+            `Nhanh API ${status} error, retrying in ${delay}ms... (attempt ${attempt}/${retries})`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+
+        // Don't retry on other errors
+        console.error("Nhanh API Error:", error.response?.data || error.message);
+        throw new Error(
+          error.response?.data?.messages || error.response?.data?.errorCode || error.message || "Nhanh API request failed"
+        );
       }
-
-      // Return the full response data (includes data array and paginator)
-      return response.data as T;
-    } catch (error: any) {
-      console.error("Nhanh API Error:", error.response?.data || error.message);
-      throw new Error(
-        error.response?.data?.messages || error.response?.data?.errorCode || error.message || "Nhanh API request failed"
-      );
     }
+
+    // All retries failed
+    throw new Error(
+      lastError.response?.data?.messages || lastError.message || "Nhanh API request failed after retries"
+    );
   }
 
   /**
@@ -69,16 +93,34 @@ class NhanhAPI {
   async getCustomers(
     params: NhanhCustomerSearchParams = {}
   ): Promise<NhanhCustomerListResponse> {
-    const { page = 1, limit = 50, name, phone, email, next } = params;
+    const { 
+      page = 1, 
+      limit = 50, 
+      name, 
+      phone, 
+      email, 
+      next,
+      type,
+      lastBoughtDateFrom,
+      lastBoughtDateTo,
+      mobile,
+      id,
+      updatedAtFrom,
+      updatedAtTo
+    } = params;
 
     // Build filters according to Nhanh API v3.0 docs
-    const filters: any = {
-      type: 1, // 1 = Khách lẻ, 2 = Khách sỉ, 3 = Đại lý
-    };
+    const filters: any = {};
 
-    if (phone) {
-      filters.mobile = phone;
-    }
+    // Add filters if provided
+    if (type !== undefined) filters.type = type;
+    if (phone) filters.mobile = phone;
+    if (mobile) filters.mobile = mobile;
+    if (id) filters.id = id;
+    if (lastBoughtDateFrom) filters.lastBoughtDateFrom = lastBoughtDateFrom;
+    if (lastBoughtDateTo) filters.lastBoughtDateTo = lastBoughtDateTo;
+    if (updatedAtFrom) filters.updatedAtFrom = updatedAtFrom;
+    if (updatedAtTo) filters.updatedAtTo = updatedAtTo;
 
     const requestData: any = {
       filters,
