@@ -205,34 +205,119 @@ export default function ProductSyncTable() {
       return;
     }
 
-    if (!confirm(`Sync inventory for ${mappingIds.length} products?\n\nThis will update inventory from Nhanh to Shopify.`)) {
+    // Estimate time: ~2 variants/sec (with inventoryItemId cache)
+    const estimatedSeconds = Math.ceil(mappingIds.length / 2);
+    const estimatedMinutes = Math.ceil(estimatedSeconds / 60);
+    const timeText = estimatedMinutes > 1 ? `~${estimatedMinutes} minutes` : "< 1 minute";
+
+    if (!confirm(
+      `Sync inventory for ${mappingIds.length} products in background?\n\n` +
+      `⚡ Estimated time: ${timeText}\n\n` +
+      `The process will continue in background even if you close this page.\n` +
+      `Check server console logs for progress.`
+    )) {
       return;
     }
 
     try {
       setLoading(true);
-      let successful = 0;
-      let failed = 0;
-
-      // Sync each product (products sync is fast, no need for bulk API)
-      for (const mappingId of mappingIds) {
-        try {
-          await productSyncClient.syncProduct(mappingId);
-          successful++;
-        } catch (error) {
-          console.error(`Failed to sync mapping ${mappingId}:`, error);
-          failed++;
-        }
-      }
-
-      await loadData();
+      
+      // Use background sync API
+      const result = await productSyncClient.bulkSyncProducts(mappingIds);
+      
       alert(
-        `Bulk sync completed!\n\nSuccessful: ${successful}\nFailed: ${failed}`
+        `Background sync started for ${mappingIds.length} products!\n\n` +
+        `Estimated time: ${timeText}\n\n` +
+        `Check server logs for progress. You can continue using the app.`
       );
       setSelectedProducts(new Set());
+      
+      // Reload data after a short delay to show updated statuses
+      setTimeout(() => loadData(), 2000);
     } catch (error: any) {
-      console.error("Error bulk syncing products:", error);
-      alert("Failed to bulk sync: " + error.message);
+      console.error("Error starting bulk sync:", error);
+      alert("Failed to start bulk sync: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSyncAllMapped() {
+    try {
+      setLoading(true);
+      
+      // Get all mapped products
+      const allMappings = await productSyncClient.getProductMappings({ page: 1, limit: 10000 });
+      const mappingIds = allMappings.mappings
+        .filter((m: any) => m.shopifyProductId && m.shopifyVariantId)
+        .map((m: any) => m.id);
+
+      if (mappingIds.length === 0) {
+        alert("No mapped products found to sync");
+        setLoading(false);
+        return;
+      }
+
+      // Estimate time: ~2 variants/sec (with inventoryItemId cache)
+      const estimatedSeconds = Math.ceil(mappingIds.length / 2);
+      const estimatedMinutes = Math.ceil(estimatedSeconds / 60);
+      const timeText = estimatedMinutes > 1 ? `~${estimatedMinutes} minutes` : "< 1 minute";
+
+      if (!confirm(
+        `Sync ALL ${mappingIds.length} mapped products in background?\n\n` +
+        `⚡ Estimated time: ${timeText}\n\n` +
+        `💡 Tip: Pull Shopify products first to cache inventory IDs for faster sync!\n\n` +
+        `The process will continue in background even if you close this page.\n` +
+        `Check server console logs for progress.`
+      )) {
+        setLoading(false);
+        return;
+      }
+
+      const result = await productSyncClient.bulkSyncProducts(mappingIds);
+      
+      alert(
+        `Background sync started for ALL ${mappingIds.length} mapped products!\n\n` +
+        `Estimated time: ${timeText}\n\n` +
+        `Check server logs for progress. You can continue using the app.`
+      );
+      
+      setTimeout(() => loadData(), 2000);
+    } catch (error: any) {
+      console.error("Error syncing all mapped:", error);
+      alert("Failed to sync all: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRetryFailed() {
+    try {
+      setLoading(true);
+      
+      // Get all failed mappings
+      const allMappings = await productSyncClient.getProductMappings({ page: 1, limit: 10000, status: "FAILED" });
+      const mappingIds = allMappings.mappings.map((m: any) => m.id);
+
+      if (mappingIds.length === 0) {
+        alert("No failed products to retry");
+        setLoading(false);
+        return;
+      }
+
+      if (!confirm(`Retry sync for ${mappingIds.length} failed products in background?`)) {
+        setLoading(false);
+        return;
+      }
+
+      const result = await productSyncClient.bulkSyncProducts(mappingIds);
+      
+      alert(`Background retry started for ${mappingIds.length} failed products!\n\nCheck server logs for progress.`);
+      
+      setTimeout(() => loadData(), 2000);
+    } catch (error: any) {
+      console.error("Error retrying failed:", error);
+      alert("Failed to retry: " + error.message);
     } finally {
       setLoading(false);
     }
@@ -604,6 +689,36 @@ export default function ProductSyncTable() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         Auto-Sync Settings
+                      </button>
+
+                      <div className="border-t border-gray-200 dark:border-gray-700"></div>
+
+                      <button
+                        onClick={() => {
+                          handleSyncAllMapped();
+                          setMoreActionsOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Sync All Mapped
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          handleRetryFailed();
+                          setMoreActionsOpen(false);
+                        }}
+                        disabled={loading || pulling}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Retry Failed
                       </button>
                     </div>
                   </div>

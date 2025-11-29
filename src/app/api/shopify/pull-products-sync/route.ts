@@ -97,6 +97,9 @@ async function pullAllProductsBackground(status?: string) {
                         price
                         compareAtPrice
                         inventoryQuantity
+                        inventoryItem {
+                          id
+                        }
                       }
                     }
                   }
@@ -153,6 +156,7 @@ async function pullAllProductsBackground(status?: string) {
           for (const variantEdge of variants) {
             const variant = variantEdge.node;
             const variantId = variant.id.split("/").pop() || variant.id;
+            const inventoryItemId = variant.inventoryItem?.id?.split("/").pop() || null;
             const fullTitle =
               variant.title && variant.title !== "Default Title"
                 ? `${product.title} - ${variant.title}`
@@ -166,6 +170,7 @@ async function pullAllProductsBackground(status?: string) {
               vendor: product.vendor,
               tags: product.tags || [],
               variantId: variantId,
+              inventoryItemId: inventoryItemId, // Save inventory_item_id
               sku: variant.sku || "",
               barcode: variant.barcode || "",
               price: parseFloat(variant.price || "0"),

@@ -102,6 +102,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Get inventoryItemId from ShopifyProduct if available
+    let shopifyInventoryItemId: string | null = null;
+    if (shopifyVariantId) {
+      const shopifyProduct = await prisma.shopifyProduct.findFirst({
+        where: { variantId: shopifyVariantId },
+        select: { inventoryItemId: true },
+      });
+      shopifyInventoryItemId = shopifyProduct?.inventoryItemId || null;
+    }
+
     const mapping = await prisma.productMapping.create({
       data: {
         nhanhProductId,
@@ -111,6 +121,7 @@ export async function POST(request: NextRequest) {
         nhanhPrice: nhanhPrice || 0,
         shopifyProductId,
         shopifyVariantId,
+        shopifyInventoryItemId, // Cache inventory_item_id from ShopifyProduct
         shopifyProductTitle,
         shopifySku,
         shopifyBarcode,

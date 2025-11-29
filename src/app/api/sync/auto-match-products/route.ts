@@ -129,6 +129,8 @@ export async function POST(request: NextRequest) {
           const shopifySku = (match.shopify_sku || '').replace(/'/g, "''");
           const shopifyBarcode = (match.shopify_barcode || '').replace(/'/g, "''");
           
+          // Note: In our system, each Shopify variant is stored as a separate product
+          // So shopifyVariantId = shopifyProductId (the variant's ID)
           return `(
             gen_random_uuid(),
             NOW(),
@@ -139,7 +141,7 @@ export async function POST(request: NextRequest) {
             ${match.nhanh_barcode ? `'${nhanhBarcode}'` : 'NULL'},
             ${match.nhanh_price || 0},
             '${match.shopify_id}',
-            NULL,
+            '${match.shopify_id}',
             ${match.shopify_title ? `'${shopifyTitle}'` : 'NULL'},
             ${match.shopify_sku ? `'${shopifySku}'` : 'NULL'},
             ${match.shopify_barcode ? `'${shopifyBarcode}'` : 'NULL'},

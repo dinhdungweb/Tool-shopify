@@ -58,22 +58,29 @@ export async function POST(request: NextRequest) {
     });
 
     try {
-      // Get latest inventory data from Nhanh
-      const nhanhProduct = await nhanhProductAPI.getProductById(mapping.nhanhProductId);
+      // Get real-time inventory data from Nhanh API
+      // Using /v3.0/product/inventory endpoint with filter: ids
+      console.log(`Fetching inventory for product ${mapping.nhanhProductId} from Nhanh API...`);
+      
+      const inventoryData = await nhanhProductAPI.getProductInventory(mapping.nhanhProductId);
+      
+      console.log(`Product ${mapping.nhanhProductName}: quantity = ${inventoryData.quantity}`);
 
       // Sync ONLY inventory to Shopify (not price)
-      await shopifyProductAPI.updateVariantInventory(
+      const result = await shopifyProductAPI.updateVariantInventory(
         mapping.shopifyVariantId,
-        nhanhProduct.quantity
+        inventoryData.quantity,
+        mapping.shopifyInventoryItemId || undefined
       );
 
-      // Update mapping status to SYNCED
+      // Update mapping status to SYNCED and cache inventoryItemId
       const updatedMapping = await prisma.productMapping.update({
         where: { id: mappingId },
         data: {
           syncStatus: "SYNCED",
           lastSyncedAt: new Date(),
           syncError: null,
+          shopifyInventoryItemId: result.inventoryItemId,
         },
       });
 
@@ -85,8 +92,9 @@ export async function POST(request: NextRequest) {
           status: "SYNCED",
           message: "Inventory synced successfully",
           metadata: {
-            quantity: nhanhProduct.quantity,
-            previousQuantity: mapping.nhanhPrice, // Store for reference
+            quantity: inventoryData.quantity,
+            price: inventoryData.price,
+            syncedAt: new Date().toISOString(),
           },
         },
       });

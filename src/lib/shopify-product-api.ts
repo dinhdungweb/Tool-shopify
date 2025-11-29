@@ -301,41 +301,159 @@ class ShopifyProductAPI {
     };
   }
 
+  // Cache for inventory item IDs and location ID
+  private inventoryItemCache = new Map<string, string>();
+  private locationId: string | null = null;
+
+  /**
+   * Get primary location ID (cached)
+   */
+  private async getLocationId(): Promise<string> {
+    if (this.locationId) {
+      return this.locationId;
+    }
+
+    const response = await this.client.get('/locations.json');
+    const locations = response.data.locations || [];
+    
+    if (locations.length === 0) {
+      throw new Error("No locations found in Shopify store");
+    }
+
+    // Use the first (primary) location
+    const locationId = locations[0].id.toString();
+    this.locationId = locationId;
+    console.log(`[Shopify] Cached location ID: ${locationId}`);
+    return locationId;
+  }
+
+  /**
+   * Get inventory item ID for a variant (cached)
+   */
+  private async getInventoryItemId(variantId: string): Promise<string> {
+    const cached = this.inventoryItemCache.get(variantId);
+    if (cached) {
+      return cached;
+    }
+
+    const response = await this.client.get(`/variants/${variantId}.json`);
+    const inventoryItemId = response.data.variant?.inventory_item_id?.toString();
+    
+    if (!inventoryItemId) {
+      throw new Error(`Inventory item ID not found for variant ${variantId}`);
+    }
+
+    this.inventoryItemCache.set(variantId, inventoryItemId);
+    return inventoryItemId;
+  }
+
   /**
    * Update product variant inventory using Inventory API
+   * OPTIMIZED: Uses cached location ID and accepts optional inventoryItemId to skip API call
    */
-  async updateVariantInventory(variantId: string, quantity: number): Promise<void> {
-    // Step 1: Get variant to find inventory_item_id
-    const variantResponse = await this.client.get(`/variants/${variantId}.json`);
-    const variant = variantResponse.data.variant;
-    const inventoryItemId = variant.inventory_item_id;
-
-    if (!inventoryItemId) {
-      throw new Error("Inventory item ID not found for variant");
+  async updateVariantInventory(
+    variantId: string, 
+    quantity: number,
+    inventoryItemId?: string
+  ): Promise<{ inventoryItemId: string }> {
+    // Get location ID (cached after first call)
+    const locationId = await this.getLocationId();
+    
+    // Get inventory item ID (use provided, cache, or fetch)
+    let itemId = inventoryItemId;
+    if (!itemId) {
+      itemId = await this.getInventoryItemId(variantId);
+    } else {
+      // Cache it for future use
+      this.inventoryItemCache.set(variantId, itemId);
     }
 
-    // Step 2: Get inventory levels to find location_id
-    const inventoryResponse = await this.client.get(
-      `/inventory_levels.json?inventory_item_ids=${inventoryItemId}`
-    );
-    const inventoryLevels = inventoryResponse.data.inventory_levels || [];
-
-    if (inventoryLevels.length === 0) {
-      throw new Error("No inventory locations found for this product");
-    }
-
-    // Use the first location (usually the primary location)
-    const locationId = inventoryLevels[0].location_id;
-    const currentQuantity = inventoryLevels[0].available || 0;
-
-    // Step 3: Set inventory level
+    // Set inventory level (only 1 API call if inventoryItemId provided!)
     await this.client.post(`/inventory_levels/set.json`, {
       location_id: locationId,
-      inventory_item_id: inventoryItemId,
+      inventory_item_id: itemId,
       available: quantity,
     });
 
-    console.log(`✓ Updated inventory for variant ${variantId}: ${currentQuantity} → ${quantity}`);
+    console.log(`✓ Updated inventory for variant ${variantId}: → ${quantity}`);
+    
+    return { inventoryItemId: itemId };
+  }
+
+  /**
+   * Batch update inventory for multiple variants
+   * Pre-fetches all inventory item IDs to minimize API calls
+   */
+  async batchUpdateVariantInventory(
+    updates: Array<{ variantId: string; quantity: number }>
+  ): Promise<{ successful: number; failed: number; errors: string[] }> {
+    const results = { successful: 0, failed: 0, errors: [] as string[] };
+    
+    // Get location ID first (1 API call, cached)
+    const locationId = await this.getLocationId();
+
+    // Pre-fetch inventory item IDs for variants not in cache
+    const uncachedVariantIds = updates
+      .map(u => u.variantId)
+      .filter(id => !this.inventoryItemCache.has(id));
+
+    if (uncachedVariantIds.length > 0) {
+      console.log(`[Shopify] Pre-fetching ${uncachedVariantIds.length} inventory item IDs...`);
+      
+      // Fetch in batches of 50 with delay
+      for (let i = 0; i < uncachedVariantIds.length; i += 50) {
+        const batch = uncachedVariantIds.slice(i, i + 50);
+        const ids = batch.join(',');
+        
+        try {
+          const response = await this.client.get(`/variants.json?ids=${ids}`);
+          const variants = response.data.variants || [];
+          
+          for (const variant of variants) {
+            if (variant.id && variant.inventory_item_id) {
+              this.inventoryItemCache.set(variant.id.toString(), variant.inventory_item_id.toString());
+            }
+          }
+        } catch (error: any) {
+          console.error(`[Shopify] Error fetching variants batch:`, error.message);
+        }
+
+        // Delay between batches
+        if (i + 50 < uncachedVariantIds.length) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+    }
+
+    // Now update inventory (only 1 API call per product)
+    for (const update of updates) {
+      try {
+        const inventoryItemId = this.inventoryItemCache.get(update.variantId);
+        
+        if (!inventoryItemId) {
+          // Fallback: fetch individually
+          const inventoryItemIdFetched = await this.getInventoryItemId(update.variantId);
+          await this.client.post(`/inventory_levels/set.json`, {
+            location_id: locationId,
+            inventory_item_id: inventoryItemIdFetched,
+            available: update.quantity,
+          });
+        } else {
+          await this.client.post(`/inventory_levels/set.json`, {
+            location_id: locationId,
+            inventory_item_id: inventoryItemId,
+            available: update.quantity,
+          });
+        }
+        
+        results.successful++;
+      } catch (error: any) {
+        results.failed++;
+        results.errors.push(`${update.variantId}: ${error.message}`);
+      }
+    }
+
+    return results;
   }
 
   /**

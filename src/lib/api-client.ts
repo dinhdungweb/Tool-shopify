@@ -692,4 +692,33 @@ export const productSyncClient = {
       body: JSON.stringify({ mappingId }),
     });
   },
+
+  // Bulk sync products in background
+  async bulkSyncProducts(mappingIds: string[]) {
+    return apiCall<{
+      total: number;
+      message: string;
+    }>("/api/sync/bulk-sync-products", {
+      method: "POST",
+      body: JSON.stringify({ mappingIds }),
+    });
+  },
+
+  // Fix missing variant IDs
+  async checkVariantIds() {
+    return apiCall<{
+      needsFix: number;
+      message: string;
+    }>("/api/sync/fix-variant-ids");
+  },
+
+  async fixVariantIds() {
+    return apiCall<{
+      fixed: number;
+      failed: number;
+      total: number;
+    }>("/api/sync/fix-variant-ids", {
+      method: "POST",
+    });
+  },
 };

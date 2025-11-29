@@ -224,6 +224,7 @@ model ShopifyProduct {
   vendor            String?
   tags              String[]
   variantId         String?
+  inventoryItemId   String? // Cached for faster inventory updates
   sku               String?
   barcode           String?
   price             Decimal  @default(0) @db.Decimal(15, 2)
@@ -248,12 +249,13 @@ model ProductMapping {
   nhanhSku            String?
   nhanhBarcode        String?
   nhanhPrice          Decimal          @default(0) @db.Decimal(15, 2)
-  shopifyProductId    String?
-  shopifyVariantId    String?
-  shopifyProductTitle String?
-  shopifySku          String?
-  shopifyBarcode      String?
-  syncStatus          SyncStatus       @default(UNMAPPED)
+  shopifyProductId      String?
+  shopifyVariantId      String?
+  shopifyInventoryItemId String? // Cached to avoid extra API call
+  shopifyProductTitle   String?
+  shopifySku            String?
+  shopifyBarcode        String?
+  syncStatus            SyncStatus       @default(UNMAPPED)
   lastSyncedAt        DateTime?
   syncError           String?
   syncAttempts        Int              @default(0)

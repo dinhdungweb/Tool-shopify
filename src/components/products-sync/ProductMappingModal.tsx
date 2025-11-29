@@ -72,9 +72,11 @@ export default function ProductMappingModal({
         });
       } else {
         // Create new mapping
+        // Note: In our system, each Shopify variant is stored as a separate product
+        // So shopifyVariantId should be the same as shopifyProductId (the variant's ID)
         await productSyncClient.createProductMapping({
           shopifyProductId: product.id,
-          shopifyVariantId: product.variantId,
+          shopifyVariantId: product.variantId || product.id, // Fallback to product.id if variantId is missing
           shopifyProductTitle: product.title,
           shopifySku: product.sku,
           shopifyBarcode: product.barcode,
