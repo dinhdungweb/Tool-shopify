@@ -34,10 +34,14 @@ async function apiCall<T>(
     const data = await response.json();
 
     if (!response.ok || !data.success) {
+      // For 409 Conflict (already running), throw with specific message
+      if (response.status === 409) {
+        throw new Error(data.error || "Resource conflict");
+      }
       throw new Error(data.error || `API request failed (${response.status})`);
     }
 
-    return data.data;
+    return data.data || data;
   } catch (error: any) {
     // Better error message for JSON parse errors
     if (error.message.includes("JSON")) {
@@ -183,13 +187,14 @@ export const shopifyClient = {
     );
   },
 
-  async pullCustomers(query?: string) {
+  async pullCustomers(query?: string, forceRestart = false) {
     return apiCall<{
       success: boolean;
       message: string;
+      isRunning?: boolean;
     }>("/api/shopify/pull-customers", {
       method: "POST",
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, forceRestart }),
     });
   },
 };

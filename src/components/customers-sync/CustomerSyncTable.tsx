@@ -284,8 +284,10 @@ export default function CustomerSyncTable() {
     }
   }
 
-  async function handlePullAllCustomers() {
-    if (!confirm("Pull ALL customers from Nhanh.vn in background?\n\nThis will continue running even if you close this page. Check the console logs for progress.")) {
+  async function handlePullAllCustomers(forceRestart = false) {
+    const restartMessage = forceRestart ? "\n\n⚠️ This will restart from the beginning!" : "";
+    
+    if (!confirm(`Pull ALL customers from Nhanh.vn in background?${restartMessage}\n\n💡 This will pull ALL customers without any filters.\n\nNote: This can run in parallel with filtered pulls.\n\nThis will continue running even if you close this page. Check the console logs for progress.`)) {
       return;
     }
 
@@ -294,7 +296,7 @@ export default function CustomerSyncTable() {
       const response = await fetch("/api/nhanh/pull-customers-all", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}), // Empty filters = pull all
+        body: JSON.stringify({ forceRestart }), // Empty filters = pull all
       });
       
       const result = await response.json();
@@ -305,32 +307,70 @@ export default function CustomerSyncTable() {
           result.message +
           "\n\nCheck the server console logs for progress."
         );
+        setPullDropdownOpen(false);
       } else {
-        throw new Error(result.error || "Failed to start background pull");
+        // Check if already running
+        if (response.status === 409) {
+          setPullDropdownOpen(false);
+          const retry = confirm(
+            "⚠️ Pull ALL customers is already running!\n\n" +
+            "Options:\n" +
+            "• Click OK to FORCE RESTART from beginning\n" +
+            "• Click Cancel to wait for current pull to finish\n\n" +
+            "Note: Force restart will lose current progress."
+          );
+          
+          if (retry) {
+            handlePullAllCustomers(true);
+          }
+        } else {
+          setPullDropdownOpen(false);
+          throw new Error(result.error || "Failed to start background pull");
+        }
       }
     } catch (error: any) {
       console.error("Error starting background pull:", error);
-      alert("Failed to start background pull: " + error.message);
+      if (!error.message?.includes("already running")) {
+        alert("Failed to start background pull: " + error.message);
+      }
+      setPullDropdownOpen(false);
     }
   }
 
-  async function handlePullShopifyCustomers(query?: string) {
+  async function handlePullShopifyCustomers(query?: string, forceRestart = false) {
     const filterMessage = query ? ` with filter: "${query}"` : "";
-    if (!confirm(`Pull Shopify customers${filterMessage} in background?\n\n⚡ This will run in background and continue even if you close this page.\n\nCheck the server console logs for progress.`)) {
+    const restartMessage = forceRestart ? "\n\n⚠️ This will restart from the beginning!" : "";
+    
+    if (!confirm(`Pull Shopify customers${filterMessage} in background?${restartMessage}\n\n⚡ This will run in background and continue even if you close this page.\n\nCheck the server console logs for progress.`)) {
       return;
     }
 
     try {
-      setPulling(true);
-      const result = await shopifyClient.pullCustomers(query);
+      // Don't set pulling state since this runs in background
+      const result = await shopifyClient.pullCustomers(query, forceRestart);
       alert(result?.message || "Background pull started! Check server logs for progress.");
-      setPage(1);
-      await loadData();
+      setShopifyPullDropdownOpen(false);
     } catch (error: any) {
       console.error("Error pulling Shopify customers:", error);
-      alert("Failed to start pull: " + error.message);
-    } finally {
-      setPulling(false);
+      
+      // Check if pull is already running
+      if (error.message?.includes("already running")) {
+        const retry = confirm(
+          "⚠️ Pull is already running!\n\n" +
+          "Options:\n" +
+          "• Click OK to FORCE RESTART from beginning\n" +
+          "• Click Cancel to wait for current pull to finish\n\n" +
+          "Note: Force restart will lose current progress."
+        );
+        
+        if (retry) {
+          // Retry with force restart
+          handlePullShopifyCustomers(query, true);
+        }
+      } else {
+        alert("Failed to start pull: " + error.message);
+      }
+      
       setShopifyPullDropdownOpen(false);
     }
   }
@@ -1770,7 +1810,7 @@ export default function CustomerSyncTable() {
 
               <button
                 onClick={async () => {
-                  const filterMessage = [];
+                  const filterMessage: string[] = [];
                   if (nhanhFilterType) {
                     const typeNames = { 1: "Khách lẻ", 2: "Khách sỉ", 3: "Đại lý" };
                     filterMessage.push(`Type: ${typeNames[nhanhFilterType as keyof typeof typeNames]}`);
@@ -1786,61 +1826,76 @@ export default function CustomerSyncTable() {
                     return;
                   }
 
-                  try {
-                    setPulling(true);
-                    setNhanhCustomFilterModalOpen(false);
-                    
-                    // Pass filters to API (no auto-save, only manual save via presets)
-                    const filters: any = {};
-                    if (nhanhFilterType) filters.type = nhanhFilterType;
-                    if (nhanhFilterDateFrom) filters.lastBoughtDateFrom = nhanhFilterDateFrom;
-                    if (nhanhFilterDateTo) filters.lastBoughtDateTo = nhanhFilterDateTo;
-                    
-                    const response = await fetch("/api/nhanh/pull-customers-all", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(filters),
-                    });
-                    
-                    const result = await response.json();
-                    
-                    if (result.success) {
-                      let alertMessage = "✅ Background pull started!\n\n";
-                      alertMessage += result.message + "\n\n";
+                  const handlePull = async (forceRestart: boolean) => {
+                    try {
+                      // Pass filters to API (no auto-save, only manual save via presets)
+                      const filters: any = {};
+                      if (nhanhFilterType) filters.type = nhanhFilterType;
+                      if (nhanhFilterDateFrom) filters.lastBoughtDateFrom = nhanhFilterDateFrom;
+                      if (nhanhFilterDateTo) filters.lastBoughtDateTo = nhanhFilterDateTo;
+                      if (forceRestart) filters.forceRestart = true;
                       
-                      if (filterMessage.length > 0) {
-                        alertMessage += "🎯 Filters applied:\n";
-                        alertMessage += filterMessage.join("\n") + "\n\n";
-                        alertMessage += "Only matching customers will be pulled.";
+                      const response = await fetch("/api/nhanh/pull-customers-all", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(filters),
+                      });
+                      
+                      const result = await response.json();
+                      
+                      if (result.success) {
+                        // Close modal only on success
+                        setNhanhCustomFilterModalOpen(false);
+                        
+                        let alertMessage = "✅ Background pull started!\n\n";
+                        alertMessage += result.message + "\n\n";
+                        
+                        if (filterMessage.length > 0) {
+                          alertMessage += "🎯 Filters applied:\n";
+                          alertMessage += filterMessage.join("\n") + "\n\n";
+                          alertMessage += "Only matching customers will be pulled.";
+                        }
+                        
+                        alert(alertMessage);
+                        
+                        // Reset filters after successful start
+                        setNhanhFilterType(null);
+                        setNhanhFilterDateFrom("");
+                        setNhanhFilterDateTo("");
+                      } else {
+                        // Check if already running
+                        if (response.status === 409) {
+                          const retry = confirm(
+                            "⚠️ Pull is already running with these filters!\n\n" +
+                            "Options:\n" +
+                            "• Click OK to FORCE RESTART from beginning\n" +
+                            "• Click Cancel to wait for current pull to finish\n\n" +
+                            "Note: Force restart will lose current progress."
+                          );
+                          
+                          if (retry) {
+                            await handlePull(true);
+                          } else {
+                            // User cancelled, close modal
+                            setNhanhCustomFilterModalOpen(false);
+                          }
+                        } else {
+                          setNhanhCustomFilterModalOpen(false);
+                          throw new Error(result.error || "Failed to start pull");
+                        }
                       }
-                      
-                      alert(alertMessage);
-                    } else {
-                      throw new Error(result.error || "Failed to start pull");
+                    } catch (error: any) {
+                      if (!error.message?.includes("already running")) {
+                        alert("Failed to start pull: " + error.message);
+                      }
                     }
-                  } catch (error: any) {
-                    alert("Failed to start pull: " + error.message);
-                  } finally {
-                    setPulling(false);
-                    setNhanhFilterType(null);
-                    setNhanhFilterDateFrom("");
-                    setNhanhFilterDateTo("");
-                  }
+                  };
+                  
+                  await handlePull(false);
                 }}
-                disabled={pulling}
-                className="h-11 rounded-lg bg-brand-500 px-5 text-sm font-medium text-white shadow-theme-xs transition-colors hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="h-11 rounded-lg bg-brand-500 px-5 text-sm font-medium text-white shadow-theme-xs transition-colors hover:bg-brand-600"
               >
-                {pulling ? (
-                  <span className="flex items-center gap-2">
-                    <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Pulling...
-                  </span>
-                ) : (
-                  "Pull Customers"
-                )}
+                Pull Customers
               </button>
               </div>
             </div>

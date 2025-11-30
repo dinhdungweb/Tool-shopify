@@ -23,12 +23,49 @@ export async function POST(request: NextRequest) {
   try {
     // Get filters from request body
     const body = await request.json().catch(() => ({}));
-    const { type, lastBoughtDateFrom, lastBoughtDateTo } = body;
+    const { type, lastBoughtDateFrom, lastBoughtDateTo, forceRestart } = body;
+    
+    // Generate progressId based on filters
+    const filterSignature = (type || lastBoughtDateFrom || lastBoughtDateTo)
+      ? JSON.stringify({ type, lastBoughtDateFrom, lastBoughtDateTo })
+      : "";
+    const progressId = filterSignature
+      ? `nhanh_customers_${Buffer.from(filterSignature).toString('base64').substring(0, 20)}`
+      : "nhanh_customers";
+    
+    const progress = await prisma.pullProgress.findUnique({
+      where: { id: progressId },
+    });
+    
+    // If forceRestart, delete progress and allow restart
+    if (forceRestart) {
+      if (progress) {
+        await prisma.pullProgress.delete({
+          where: { id: progressId },
+        });
+        console.log(`🔄 Force restart: Deleted progress for ${progressId}`);
+      }
+    } else {
+      // Check if pull is currently running (updated within last 2 minutes)
+      if (progress && !progress.isCompleted && progress.lastPulledAt) {
+        const minutesSinceLastUpdate = (Date.now() - progress.lastPulledAt.getTime()) / (1000 * 60);
+        if (minutesSinceLastUpdate < 2) {
+          return NextResponse.json({
+            success: false,
+            error: "Pull is already running! Please wait for it to complete or reset progress first.",
+            isRunning: true,
+          }, { status: 409 }); // 409 Conflict
+        }
+      }
+    }
     
     // Start background processing with filters (don't await)
     pullAllCustomersInBackground({ type, lastBoughtDateFrom, lastBoughtDateTo });
 
     let message = "Background pull started. Check logs or database for progress.";
+    if (forceRestart) {
+      message += " (restarting from beginning)";
+    }
     if (type || lastBoughtDateFrom || lastBoughtDateTo) {
       message += "\n\nFilters applied:";
       if (type) message += `\n- Type: ${type}`;
@@ -94,15 +131,19 @@ async function pullAllCustomersInBackground(filters?: {
   // Check if filters match previous pull
   const previousFilters = progress?.metadata ? JSON.parse(progress.metadata as string) : null;
   const filtersMatch = previousFilters && JSON.stringify(previousFilters) === filterSignature;
-  const isIncremental = filtersMatch && progress?.isCompleted;
-
+  
+  // Only use incremental mode if explicitly requested (not on regular pull)
+  // For now, always start fresh when pull is completed
+  const isIncremental = false; // Disabled for now - always start fresh
+  
   let nextCursor: any = undefined;
   
-  if (isIncremental) {
-    console.log(`🔄 INCREMENTAL MODE: Same filters as last pull, will skip fresh customers`);
-  } else if (progress?.nextCursor) {
-    console.log(`📍 RESUMING: Continuing from last cursor`);
+  // Only resume if pull is incomplete
+  if (progress && !progress.isCompleted && progress.nextCursor) {
+    console.log(`📍 RESUMING: Continuing from last cursor (${progress.totalPulled} customers already pulled)`);
     nextCursor = progress.nextCursor;
+  } else if (progress?.isCompleted) {
+    console.log(`🔄 Previous pull was completed. Starting fresh pull.`);
   } else if (previousFilters && !filtersMatch) {
     console.log(`🔄 DIFFERENT FILTERS: Starting from beginning`);
     console.log(`   Previous: ${JSON.stringify(previousFilters)}`);

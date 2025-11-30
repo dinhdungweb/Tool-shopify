@@ -13,12 +13,14 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get("type") || "customers";
     
-    const progressId = type === "products" ? "shopify_products" : "shopify_customers";
+    // Delete ALL pull progress records for this type (including filtered ones)
+    const prefix = type === "products" ? "shopify_products" : "shopify_customers";
     
-    // Delete the specific pull progress record
     const deleted = await prisma.pullProgress.deleteMany({
       where: {
-        id: progressId,
+        id: {
+          startsWith: prefix,
+        },
       },
     });
 
@@ -26,7 +28,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Shopify ${type} pull progress reset successfully. ${deleted.count} progress record(s) deleted.`,
+      message: `Shopify ${type} pull progress reset successfully. ${deleted.count} progress record(s) deleted (including filtered pulls).`,
       data: {
         deletedCount: deleted.count,
         type,

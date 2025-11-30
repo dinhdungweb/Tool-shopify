@@ -20,16 +20,44 @@ export const maxDuration = 300; // 5 minutes - but will continue in background
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { query } = body;
+    const { query, forceRestart } = body;
+    
+    const progressId = query ? `shopify_customers_${Buffer.from(query).toString('base64').substring(0, 20)}` : "shopify_customers";
+    const progress = await prisma.pullProgress.findUnique({
+      where: { id: progressId },
+    });
+    
+    // If forceRestart, delete progress and allow restart
+    if (forceRestart) {
+      if (progress) {
+        await prisma.pullProgress.delete({
+          where: { id: progressId },
+        });
+        console.log(`🔄 Force restart: Deleted progress for ${progressId}`);
+      }
+    } else {
+      // Check if pull is currently running (updated within last 2 minutes)
+      if (progress && !progress.isCompleted && progress.lastPulledAt) {
+        const minutesSinceLastUpdate = (Date.now() - progress.lastPulledAt.getTime()) / (1000 * 60);
+        if (minutesSinceLastUpdate < 2) {
+          return NextResponse.json({
+            success: false,
+            error: "Pull is already running! Please wait for it to complete or reset progress first.",
+            isRunning: true,
+          }, { status: 409 }); // 409 Conflict
+        }
+      }
+    }
     
     // Start background process immediately and return
     pullAllCustomersBackground(query);
     
     const filterMessage = query ? ` with filter: "${query}"` : "";
+    const restartMessage = forceRestart ? " (restarting from beginning)" : "";
     
     return NextResponse.json({
       success: true,
-      message: `Background pull started${filterMessage}! Check server logs for progress. The process will auto-resume if interrupted.`,
+      message: `Background pull started${filterMessage}${restartMessage}! Check server logs for progress.`,
     });
   } catch (error: any) {
     return NextResponse.json({
@@ -58,12 +86,18 @@ async function pullAllCustomersBackground(query?: string) {
     });
 
     let hasNextPage = true;
-    cursor = progress?.nextCursor as string | null || null;
+    
+    // Only resume if pull is incomplete
+    // If completed, start fresh
+    const shouldResume = progress && !progress.isCompleted && progress.nextCursor;
+    cursor = shouldResume ? (progress.nextCursor as string) : null;
     const resuming = !!cursor;
 
     if (resuming) {
       console.log(`🔄 Resuming from previous pull (${progress?.totalPulled || 0} customers already pulled)`);
       totalFetched = progress?.totalPulled || 0;
+    } else if (progress?.isCompleted) {
+      console.log(`🔄 Previous pull was completed. Starting fresh pull.`);
     }
 
     // Pull all customers using pagination
