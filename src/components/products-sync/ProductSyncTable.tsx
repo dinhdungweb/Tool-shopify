@@ -410,6 +410,39 @@ export default function ProductSyncTable() {
     }
   }
 
+  async function handleDeleteMapping(productId: string) {
+    const mapping = mappings.get(productId);
+    if (!mapping) {
+      alert("No mapping found for this product");
+      return;
+    }
+
+    if (!confirm("Delete this mapping?\n\nThis will remove the connection between Nhanh and Shopify product. You can re-map them later.")) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const response = await fetch(`/api/sync/product-mapping?id=${mapping.id}`, {
+        method: "DELETE",
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        showToast("Mapping deleted successfully!", "success");
+        await loadData();
+      } else {
+        throw new Error(result.error || "Failed to delete mapping");
+      }
+    } catch (error: any) {
+      console.error("Error deleting mapping:", error);
+      showToast(`Failed to delete mapping: ${error.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function formatCurrency(amount: number) {
     return new Intl.NumberFormat("vi-VN", {
       style: "currency",
@@ -1090,19 +1123,20 @@ export default function ProductSyncTable() {
                         ) : (
                           <>
                             <button
-                              onClick={() => openMappingModal(product)}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
+                              onClick={() => handleDeleteMapping(product.id)}
+                              disabled={loading}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-danger-300 bg-white px-3 py-1.5 text-xs font-medium text-danger-700 hover:bg-danger-50 disabled:opacity-50 dark:border-danger-700 dark:bg-gray-800 dark:text-danger-400 dark:hover:bg-danger-900/20"
                             >
                               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                               </svg>
-                              Remap
+                              Delete
                             </button>
                             <button
                               onClick={() => handleSync(product.id)}
                               disabled={isSyncing}
                               className="inline-flex items-center gap-1.5 rounded-lg bg-success-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-success-600 disabled:opacity-50"
-                              title="Đồng bộ tồn kho từ Nhanh sang Shopify"
+                              title="Sync inventory from Nhanh to Shopify"
                             >
                               {isSyncing ? (
                                 <>
@@ -1134,11 +1168,11 @@ export default function ProductSyncTable() {
       {products.length > 0 && totalPages > 0 && (
         <div className="flex flex-col gap-4 border-t border-gray-200 px-6 py-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-gray-500 dark:text-gray-400">
-            Hiển thị <span className="font-medium text-gray-700 dark:text-gray-300">{(page - 1) * limit + 1}</span> đến{" "}
+            Showing <span className="font-medium text-gray-700 dark:text-gray-300">{(page - 1) * limit + 1}</span> to{" "}
             <span className="font-medium text-gray-700 dark:text-gray-300">
               {Math.min(page * limit, total)}
             </span>{" "}
-            trong <span className="font-medium text-gray-700 dark:text-gray-300">{total}</span> sản phẩm
+            of <span className="font-medium text-gray-700 dark:text-gray-300">{total}</span> products
           </div>
           
           <div className="flex items-center gap-2">
@@ -1150,7 +1184,7 @@ export default function ProductSyncTable() {
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
-              Trước
+              Previous
             </button>
 
             <div className="hidden items-center gap-1 sm:flex">
@@ -1195,7 +1229,7 @@ export default function ProductSyncTable() {
               disabled={page >= totalPages || loading || pulling}
               className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
             >
-              Sau
+              Next
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
