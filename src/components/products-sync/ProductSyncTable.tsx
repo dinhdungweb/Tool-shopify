@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { productSyncClient, syncClient } from "@/lib/api-client";
 import { ShopifyProduct } from "@/types/product";
 import SyncStatusBadge from "../customers-sync/SyncStatusBadge";
@@ -9,8 +10,12 @@ import GlobalProductAutoSyncSettings from "./GlobalProductAutoSyncSettings";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "../ui/table";
 import Checkbox from "../form/input/Checkbox";
 import { NhanhProduct } from "@prisma/client";
+import { useToast } from "../ui/toast/ToastContainer";
+import { useJobMonitor } from "@/hooks/useJobMonitor";
+import { exportToCSV } from "@/lib/export-utils";
 
 export default function ProductSyncTable() {
+  const { showToast } = useToast();
   const [products, setProducts] = useState<ShopifyProduct[]>([]);
   const [mappings, setMappings] = useState<Map<string, any>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -31,7 +36,34 @@ export default function ProductSyncTable() {
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const [selectDropdownOpen, setSelectDropdownOpen] = useState(false);
+  const [jobNotification, setJobNotification] = useState<string | null>(null);
   const limit = 50;
+
+  // Monitor job completion and show notifications
+  useJobMonitor({
+    onJobCompleted: (job) => {
+      if (job.type === "PRODUCT_SYNC" || job.type === "PULL_SHOPIFY_PRODUCTS" || job.type === "PULL_NHANH_PRODUCTS") {
+        showToast(
+          `${job.type.replace(/_/g, " ")} completed! ${job.successful} successful, ${job.failed} failed.`,
+          "success",
+          7000
+        );
+        // Auto-refresh data
+        loadData();
+        setJobNotification(null);
+      }
+    },
+    onJobFailed: (job) => {
+      if (job.type === "PRODUCT_SYNC" || job.type === "PULL_SHOPIFY_PRODUCTS" || job.type === "PULL_NHANH_PRODUCTS") {
+        showToast(
+          `${job.type.replace(/_/g, " ")} failed: ${job.error || "Unknown error"}`,
+          "error",
+          7000
+        );
+        setJobNotification(null);
+      }
+    },
+  });
 
   useEffect(() => {
     loadData();
@@ -213,8 +245,7 @@ export default function ProductSyncTable() {
     if (!confirm(
       `Sync inventory for ${mappingIds.length} products in background?\n\n` +
       `⚡ Estimated time: ${timeText}\n\n` +
-      `The process will continue in background even if you close this page.\n` +
-      `Check server console logs for progress.`
+      `You can track progress in Job Tracking page.`
     )) {
       return;
     }
@@ -225,15 +256,9 @@ export default function ProductSyncTable() {
       // Use background sync API
       const result = await productSyncClient.bulkSyncProducts(mappingIds);
       
-      alert(
-        `Background sync started for ${mappingIds.length} products!\n\n` +
-        `Estimated time: ${timeText}\n\n` +
-        `Check server logs for progress. You can continue using the app.`
-      );
+      // Show notification with link to Job Tracking
+      setJobNotification(`Syncing ${mappingIds.length} products in background...`);
       setSelectedProducts(new Set());
-      
-      // Reload data after a short delay to show updated statuses
-      setTimeout(() => loadData(), 2000);
     } catch (error: any) {
       console.error("Error starting bulk sync:", error);
       alert("Failed to start bulk sync: " + error.message);
@@ -267,8 +292,7 @@ export default function ProductSyncTable() {
         `Sync ALL ${mappingIds.length} mapped products in background?\n\n` +
         `⚡ Estimated time: ${timeText}\n\n` +
         `💡 Tip: Pull Shopify products first to cache inventory IDs for faster sync!\n\n` +
-        `The process will continue in background even if you close this page.\n` +
-        `Check server console logs for progress.`
+        `You can track progress in Job Tracking page.`
       )) {
         setLoading(false);
         return;
@@ -276,13 +300,8 @@ export default function ProductSyncTable() {
 
       const result = await productSyncClient.bulkSyncProducts(mappingIds);
       
-      alert(
-        `Background sync started for ALL ${mappingIds.length} mapped products!\n\n` +
-        `Estimated time: ${timeText}\n\n` +
-        `Check server logs for progress. You can continue using the app.`
-      );
-      
-      setTimeout(() => loadData(), 2000);
+      // Show notification with link to Job Tracking
+      setJobNotification(`Syncing ALL ${mappingIds.length} products in background...`);
     } catch (error: any) {
       console.error("Error syncing all mapped:", error);
       alert("Failed to sync all: " + error.message);
@@ -305,19 +324,44 @@ export default function ProductSyncTable() {
         return;
       }
 
-      if (!confirm(`Retry sync for ${mappingIds.length} failed products in background?`)) {
+      if (!confirm(`Retry sync for ${mappingIds.length} failed products in background?\n\nYou can track progress in Job Tracking page.`)) {
         setLoading(false);
         return;
       }
 
       const result = await productSyncClient.bulkSyncProducts(mappingIds);
       
-      alert(`Background retry started for ${mappingIds.length} failed products!\n\nCheck server logs for progress.`);
-      
-      setTimeout(() => loadData(), 2000);
+      // Show notification with link to Job Tracking
+      setJobNotification(`Retrying ${mappingIds.length} failed products...`);
     } catch (error: any) {
       console.error("Error retrying failed:", error);
       alert("Failed to retry: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleExport() {
+    try {
+      setLoading(true);
+      showToast("Preparing export...", "info", 2000);
+
+      const params = new URLSearchParams();
+      if (filter !== "all") params.append("filter", filter);
+      if (keyword) params.append("keyword", keyword);
+
+      const response = await fetch(`/api/export/products?${params.toString()}`);
+      const result = await response.json();
+
+      if (result.success) {
+        exportToCSV(result.data, `products_${filter}`);
+        showToast(`Exported ${result.total} products successfully!`, "success");
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error: any) {
+      console.error("Error exporting:", error);
+      showToast(`Failed to export: ${error.message}`, "error");
     } finally {
       setLoading(false);
     }
@@ -407,6 +451,39 @@ export default function ProductSyncTable() {
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      {/* Job Started Notification */}
+      {jobNotification && (
+        <div className="border-b border-brand-200 bg-brand-50 p-4 dark:border-brand-800 dark:bg-brand-900/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600"></div>
+              <span className="text-sm font-medium text-brand-700 dark:text-brand-400">
+                {jobNotification}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Link
+                href="/job-tracking"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-600"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                View Progress
+              </Link>
+              <button
+                onClick={() => setJobNotification(null)}
+                className="text-brand-500 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header Actions */}
       <div className="border-b border-gray-200 p-6 dark:border-gray-800">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -675,6 +752,20 @@ export default function ProductSyncTable() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                         </svg>
                         Auto Match by SKU
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          handleExport();
+                          setMoreActionsOpen(false);
+                        }}
+                        disabled={loading}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Export to CSV
                       </button>
 
                       <button

@@ -23,14 +23,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Create background job for tracking
+    const job = await prisma.backgroundJob.create({
+      data: {
+        type: "CUSTOMER_SYNC",
+        total: mappingIds.length,
+        status: "RUNNING",
+        metadata: {
+          estimatedSpeed: "~5 customers/sec",
+          estimatedTime: `~${Math.ceil(mappingIds.length / 5 / 60)} minutes`,
+        },
+      },
+    });
+
     // Start background processing (don't await)
-    bulkSyncBackground(mappingIds);
+    bulkSyncBackground(mappingIds, job.id);
 
     return NextResponse.json({
       success: true,
       data: {
         total: mappingIds.length,
-        message: `Background sync started for ${mappingIds.length} customers. Check server logs for progress.`,
+        jobId: job.id,
+        message: `Background sync started for ${mappingIds.length} customers. Check progress in UI.`,
       },
     });
   } catch (error: any) {
@@ -42,8 +56,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function bulkSyncBackground(mappingIds: string[]) {
-  console.log(`🚀 Starting background bulk sync for ${mappingIds.length} customers...`);
+async function bulkSyncBackground(mappingIds: string[], jobId: string) {
+  console.log(`🚀 Starting background bulk sync for ${mappingIds.length} customers (Job: ${jobId})...`);
   const startTime = Date.now();
 
   let successful = 0;
@@ -134,6 +148,28 @@ async function bulkSyncBackground(mappingIds: string[]) {
 
     await Promise.all(batchPromises);
 
+    // Update job progress every 10 batches
+    if (batchIndex % 10 === 0 || batchIndex === totalBatches - 1) {
+      const processed = successful + failed;
+      const elapsed = (Date.now() - startTime) / 1000;
+      const speed = processed > 0 ? (processed / elapsed).toFixed(1) : "0";
+      const remaining = mappingIds.length - processed;
+      const eta = processed > 0 ? Math.ceil(remaining / (processed / elapsed)) : 0;
+      
+      await prisma.backgroundJob.update({
+        where: { id: jobId },
+        data: {
+          processed,
+          successful,
+          failed,
+          metadata: {
+            speed: `${speed} customers/sec`,
+            eta: eta > 60 ? `~${Math.ceil(eta / 60)} min` : `~${eta} sec`,
+          },
+        },
+      }).catch(() => {}); // Ignore errors
+    }
+
     // Shorter delay for background processing
     if (batchIndex < totalBatches - 1) {
       await new Promise(resolve => setTimeout(resolve, batchDelay));
@@ -145,4 +181,20 @@ async function bulkSyncBackground(mappingIds: string[]) {
   console.log(`🎉 Background bulk sync completed in ${duration}s (${speed} customers/sec)!`);
   console.log(`   ✅ Successful: ${successful}`);
   console.log(`   ❌ Failed: ${failed}`);
+
+  // Update job as completed
+  await prisma.backgroundJob.update({
+    where: { id: jobId },
+    data: {
+      status: "COMPLETED",
+      processed: successful + failed,
+      successful,
+      failed,
+      completedAt: new Date(),
+      metadata: {
+        duration: `${duration}s`,
+        speed: `${speed} customers/sec`,
+      },
+    },
+  }).catch(() => {}); // Ignore errors
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { nhanhClient, syncClient, shopifyClient } from "@/lib/api-client";
 import { NhanhCustomer } from "@/types/nhanh";
 import { CustomerMappingData, SyncStatus } from "@/types/mapping";
@@ -10,8 +11,12 @@ import GlobalAutoSyncSettings from "./GlobalAutoSyncSettings";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "../ui/table";
 import { Modal } from "../ui/modal";
 import Checkbox from "../form/input/Checkbox";
+import { useToast } from "../ui/toast/ToastContainer";
+import { useJobMonitor } from "@/hooks/useJobMonitor";
+import { exportToCSV } from "@/lib/export-utils";
 
 export default function CustomerSyncTable() {
+  const { showToast } = useToast();
   const [customers, setCustomers] = useState<NhanhCustomer[]>([]);
   const [mappings, setMappings] = useState<Map<string, CustomerMappingData>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -41,7 +46,34 @@ export default function CustomerSyncTable() {
   const [nhanhFilterDateTo, setNhanhFilterDateTo] = useState("");
   const [nhanhSavedFilters, setNhanhSavedFilters] = useState<Array<{name: string; type: number | null; dateFrom: string; dateTo: string}>>([]);
   const [nhanhFilterName, setNhanhFilterName] = useState("");
+  const [jobNotification, setJobNotification] = useState<string | null>(null);
   const limit = 50;
+
+  // Monitor job completion and show notifications
+  useJobMonitor({
+    onJobCompleted: (job) => {
+      if (job.type === "CUSTOMER_SYNC" || job.type === "PULL_SHOPIFY_CUSTOMERS" || job.type === "PULL_NHANH_CUSTOMERS") {
+        showToast(
+          `${job.type.replace(/_/g, " ")} completed! ${job.successful} successful, ${job.failed} failed.`,
+          "success",
+          7000
+        );
+        // Auto-refresh data
+        loadData();
+        setJobNotification(null);
+      }
+    },
+    onJobFailed: (job) => {
+      if (job.type === "CUSTOMER_SYNC" || job.type === "PULL_SHOPIFY_CUSTOMERS" || job.type === "PULL_NHANH_CUSTOMERS") {
+        showToast(
+          `${job.type.replace(/_/g, " ")} failed: ${job.error || "Unknown error"}`,
+          "error",
+          7000
+        );
+        setJobNotification(null);
+      }
+    },
+  });
 
   // Load saved filters from localStorage
   useEffect(() => {
@@ -494,7 +526,7 @@ export default function CustomerSyncTable() {
       if (!confirm(
         `Sync ${mappingIds.length} customers in background?\n\n` +
         `⚡ Estimated time: ~${estimatedTime} minutes\n\n` +
-        `The process will continue in background. Check server logs for progress.`
+        `You can track progress in Job Tracking page.`
       )) {
         setLoading(false);
         return;
@@ -502,17 +534,39 @@ export default function CustomerSyncTable() {
       
       // Always use background sync - works for all sizes
       const result = await syncClient.bulkSyncBackground(mappingIds);
-      alert(
-        `Background sync started for ${mappingIds.length} customers!\n\n` +
-        `Estimated time: ~${estimatedTime} minutes\n\n` +
-        `Check server logs for progress. You can continue using the app.`
-      );
       
+      // Show notification with link to Job Tracking
+      setJobNotification(`Syncing ${mappingIds.length} customers in background...`);
       setSelectedCustomers(new Set());
-      await loadData();
     } catch (error: any) {
       console.error("Error bulk syncing:", error);
       alert("Failed to bulk sync: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleExport() {
+    try {
+      setLoading(true);
+      showToast("Preparing export...", "info", 2000);
+
+      const params = new URLSearchParams();
+      if (filter !== "all") params.append("filter", filter);
+      if (keyword) params.append("keyword", keyword);
+
+      const response = await fetch(`/api/export/customers?${params.toString()}`);
+      const result = await response.json();
+
+      if (result.success) {
+        exportToCSV(result.data, `customers_${filter}`);
+        showToast(`Exported ${result.total} customers successfully!`, "success");
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error: any) {
+      console.error("Error exporting:", error);
+      showToast(`Failed to export: ${error.message}`, "error");
     } finally {
       setLoading(false);
     }
@@ -566,6 +620,39 @@ export default function CustomerSyncTable() {
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      {/* Job Started Notification */}
+      {jobNotification && (
+        <div className="border-b border-brand-200 bg-brand-50 p-4 dark:border-brand-800 dark:bg-brand-900/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600"></div>
+              <span className="text-sm font-medium text-brand-700 dark:text-brand-400">
+                {jobNotification}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Link
+                href="/job-tracking"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-600"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                View Progress
+              </Link>
+              <button
+                onClick={() => setJobNotification(null)}
+                className="text-brand-500 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header Actions */}
       <div className="border-b border-gray-200 p-6 dark:border-gray-800">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -936,6 +1023,20 @@ export default function CustomerSyncTable() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         Auto Match
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          handleExport();
+                          setMoreActionsOpen(false);
+                        }}
+                        disabled={loading}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Export to CSV
                       </button>
 
                       <button

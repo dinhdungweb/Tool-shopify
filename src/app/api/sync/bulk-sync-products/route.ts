@@ -26,14 +26,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Create background job for tracking
+    const job = await prisma.backgroundJob.create({
+      data: {
+        type: "PRODUCT_SYNC",
+        total: mappingIds.length,
+        status: "RUNNING",
+        metadata: {
+          estimatedSpeed: "~2 products/sec",
+          estimatedTime: `~${Math.ceil(mappingIds.length / 2 / 60)} minutes`,
+        },
+      },
+    });
+
     // Start background processing (don't await)
-    bulkSyncProductsBackground(mappingIds);
+    bulkSyncProductsBackground(mappingIds, job.id);
 
     return NextResponse.json({
       success: true,
       data: {
         total: mappingIds.length,
-        message: `Background sync started for ${mappingIds.length} products. Check server logs for progress.`,
+        jobId: job.id,
+        message: `Background sync started for ${mappingIds.length} products. Check progress in UI.`,
       },
     });
   } catch (error: any) {
@@ -45,8 +59,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function bulkSyncProductsBackground(mappingIds: string[]) {
-  console.log(`🚀 Starting SUPER OPTIMIZED bulk sync for ${mappingIds.length} products...`);
+async function bulkSyncProductsBackground(mappingIds: string[], jobId: string) {
+  console.log(`🚀 Starting SUPER OPTIMIZED bulk sync for ${mappingIds.length} products (Job: ${jobId})...`);
   const startTime = Date.now();
 
   let successful = 0;
@@ -187,6 +201,27 @@ async function bulkSyncProductsBackground(mappingIds: string[]) {
           }
         }
 
+        // Update job progress
+        const processed = successful + failed;
+        const elapsed = (Date.now() - startTime) / 1000;
+        const speed = processed > 0 ? (processed / elapsed).toFixed(1) : "0";
+        const remaining = mappingIds.length - processed;
+        const eta = processed > 0 ? Math.ceil(remaining / (processed / elapsed)) : 0;
+        
+        await prisma.backgroundJob.update({
+          where: { id: jobId },
+          data: {
+            processed,
+            successful,
+            failed,
+            metadata: {
+              speed: `${speed} products/sec`,
+              eta: eta > 60 ? `~${Math.ceil(eta / 60)} min` : `~${eta} sec`,
+              rateLimitHits,
+            },
+          },
+        }).catch(() => {}); // Ignore errors
+
         // Handle rate limit
         if (batchRateLimited) {
           console.warn(`  ⚠️ Shopify rate limit! Waiting ${RATE_LIMIT_DELAY / 1000}s...`);
@@ -232,4 +267,21 @@ async function bulkSyncProductsBackground(mappingIds: string[]) {
   if (rateLimitHits > 0) {
     console.log(`⚠️ Rate limit hits: ${rateLimitHits}`);
   }
+
+  // Update job as completed
+  await prisma.backgroundJob.update({
+    where: { id: jobId },
+    data: {
+      status: "COMPLETED",
+      processed: successful + failed,
+      successful,
+      failed,
+      completedAt: new Date(),
+      metadata: {
+        duration: `${duration}s`,
+        speed: `${speed} products/sec`,
+        rateLimitHits,
+      },
+    },
+  }).catch(() => {}); // Ignore errors
 }

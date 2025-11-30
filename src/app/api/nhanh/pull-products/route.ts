@@ -9,17 +9,28 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300; // Will continue in background
 
 export async function POST(request: NextRequest) {
+  // Create background job for tracking
+  const job = await prisma.backgroundJob.create({
+    data: {
+      type: "PULL_NHANH_PRODUCTS",
+      total: 0,
+      status: "RUNNING",
+    },
+  });
+  
   // Start background process immediately
-  pullAllProductsBackground();
+  pullAllProductsBackground(job.id);
   
   return NextResponse.json({
     success: true,
-    message: "Background pull started! Check server logs for progress.",
+    jobId: job.id,
+    message: "Background pull started! Check Job Tracking for progress.",
   });
 }
 
-async function pullAllProductsBackground() {
-  console.log("🚀 Starting background pull of ALL Nhanh products...");
+async function pullAllProductsBackground(jobId: string) {
+  console.log(`🚀 Starting background pull of ALL Nhanh products (Job: ${jobId})...`);
+  const startTime = Date.now();
   
   let created = 0;
   let updated = 0;
@@ -140,6 +151,23 @@ async function pullAllProductsBackground() {
         console.log(`  💾 Saved to DB in ${dbTime}s (Created: ${toCreate.length}, Updated: ${toUpdate.length})`);
         console.log(`  📊 Progress: ${totalFetched} total products, Page ${pageCount} completed`);
 
+        // Update job progress
+        const elapsed = (Date.now() - startTime) / 1000;
+        const speed = totalFetched > 0 ? (totalFetched / elapsed).toFixed(1) : "0";
+        await prisma.backgroundJob.update({
+          where: { id: jobId },
+          data: {
+            total: totalFetched,
+            processed: totalFetched,
+            successful: created + updated,
+            failed,
+            metadata: {
+              speed: `${speed} products/sec`,
+              pages: pageCount,
+            },
+          },
+        }).catch(() => {});
+
         // Check for next page
         hasMore = response.hasMore;
         nextCursor = response.next;
@@ -195,6 +223,9 @@ async function pullAllProductsBackground() {
       }
     }
 
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    const speed = totalFetched > 0 ? (totalFetched / parseFloat(duration)).toFixed(1) : "0";
+    
     console.log(`\n✅ Pull completed successfully!`);
     console.log(`📊 Final stats:`);
     console.log(`   - Total products: ${totalFetched}`);
@@ -202,6 +233,7 @@ async function pullAllProductsBackground() {
     console.log(`   - Updated: ${updated}`);
     console.log(`   - Failed: ${failed}`);
     console.log(`   - Pages processed: ${pageCount}`);
+    console.log(`   - Duration: ${duration}s (${speed} products/sec)`);
 
     // Mark as completed
     await prisma.pullProgress.update({
@@ -212,8 +244,38 @@ async function pullAllProductsBackground() {
       },
     });
 
+    // Update job as completed
+    await prisma.backgroundJob.update({
+      where: { id: jobId },
+      data: {
+        status: "COMPLETED",
+        total: totalFetched,
+        processed: totalFetched,
+        successful: created + updated,
+        failed,
+        completedAt: new Date(),
+        metadata: {
+          duration: `${duration}s`,
+          speed: `${speed} products/sec`,
+          pages: pageCount,
+          created,
+          updated,
+        },
+      },
+    }).catch(() => {});
+
   } catch (error: any) {
     console.error("❌ Fatal error in background pull:", error);
+    
+    // Update job as failed
+    await prisma.backgroundJob.update({
+      where: { id: jobId },
+      data: {
+        status: "FAILED",
+        error: error.message,
+        completedAt: new Date(),
+      },
+    }).catch(() => {});
     
     // Save error state
     try {
