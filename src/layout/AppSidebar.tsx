@@ -16,6 +16,12 @@ import {
   PlugInIcon,
   TableIcon,
   UserCircleIcon,
+  SyncIcon,
+  ShoppingCartIcon,
+  TagIcon,
+  ClockIcon,
+  SettingsIcon,
+  InfoCircleIcon,
 } from "../icons/index";
 
 type NavItem = {
@@ -42,35 +48,34 @@ const navItems: NavItem[] = [
     path: "/profile",
   },
   {
-    icon: <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M10 3.33334V16.6667M10 3.33334L6.66667 6.66667M10 3.33334L13.3333 6.66667M3.33333 16.6667H16.6667" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>,
+    icon: <SyncIcon />,
     name: "Customer Sync",
     path: "/customers-sync",
   },
   {
-    icon: <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M3.33333 5.83334H16.6667M3.33333 10H16.6667M3.33333 14.1667H16.6667" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M8.33333 5.83334V14.1667M11.6667 5.83334V14.1667" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>,
+    icon: <ShoppingCartIcon />,
     name: "Products Sync",
     path: "/products-sync",
   },
   {
-    icon: <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M4.16667 8.33334L10 2.5L15.8333 8.33334M5 7.5V15.8333C5 16.2754 5.17559 16.6993 5.48816 17.0118C5.80072 17.3244 6.22464 17.5 6.66667 17.5H13.3333C13.7754 17.5 14.1993 17.3244 14.5118 17.0118C14.8244 16.6993 15 16.2754 15 15.8333V7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M8.33333 12.5H11.6667" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>,
+    icon: <TagIcon />,
     name: "Sale Campaigns",
     path: "/sale-campaigns",
   },
   {
-    icon: <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M10 18.3333C14.6024 18.3333 18.3333 14.6024 18.3333 10C18.3333 5.39763 14.6024 1.66667 10 1.66667C5.39763 1.66667 1.66667 5.39763 1.66667 10C1.66667 14.6024 5.39763 18.3333 10 18.3333Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M10 5V10L13.3333 11.6667" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>,
+    icon: <ClockIcon />,
     name: "Job Tracking",
     path: "/job-tracking",
+  },
+  {
+    icon: <SettingsIcon />,
+    name: "Settings",
+    path: "/settings",
+  },
+  {
+    icon: <InfoCircleIcon />,
+    name: "System Logs",
+    path: "/logs",
   },
   {
     name: "Forms",
@@ -81,14 +86,6 @@ const navItems: NavItem[] = [
     name: "Tables",
     icon: <TableIcon />,
     subItems: [{ name: "Basic Tables", path: "/basic-tables", pro: false }],
-  },
-  {
-    name: "Pages",
-    icon: <PageIcon />,
-    subItems: [
-      { name: "Blank Page", path: "/blank", pro: false },
-      { name: "404 Error", path: "/error-404", pro: false },
-    ],
   },
 ];
 
@@ -131,7 +128,7 @@ const AppSidebar: React.FC = () => {
     navItems: NavItem[],
     menuType: "main" | "others"
   ) => (
-    <ul className="flex flex-col gap-4">
+    <ul className="flex flex-col gap-2">
       {navItems.map((nav, index) => (
         <li key={nav.name}>
           {nav.subItems ? (
@@ -367,7 +364,7 @@ const AppSidebar: React.FC = () => {
       </div>
       <div className="flex flex-col overflow-y-auto duration-300 ease-linear no-scrollbar">
         <nav className="mb-6">
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
             <div>
               <h2
                 className={`mb-4 text-xs uppercase flex leading-[20px] text-gray-400 ${

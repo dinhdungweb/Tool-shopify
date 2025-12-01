@@ -316,6 +316,17 @@ model BackgroundJob {
   @@map("background_jobs")
 }
 
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text // Encrypted value
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+  @@map("settings")
+}
+
 enum JobStatus {
   PENDING
   RUNNING

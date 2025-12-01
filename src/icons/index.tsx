@@ -51,6 +51,12 @@ import HorizontaLDots from "./horizontal-dots.svg";
 import ChatIcon from "./chat.svg";
 import MoreDotIcon from "./more-dot.svg";
 import BellIcon from "./bell.svg";
+import SyncIcon from "./sync.svg";
+import ShoppingCartIcon from "./shopping-cart.svg";
+import TagIcon from "./tag.svg";
+import ClockIcon from "./clock.svg";
+import SettingsIcon from "./settings.svg";
+import InfoCircleIcon from "./info-circle.svg";
 
 export {
   DownloadIcon,
@@ -106,4 +112,10 @@ export {
   HorizontaLDots,
   ChevronUpIcon,
   ChatIcon,
+  SyncIcon,
+  ShoppingCartIcon,
+  TagIcon,
+  ClockIcon,
+  SettingsIcon,
+  InfoCircleIcon,
 };

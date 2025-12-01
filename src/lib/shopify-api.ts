@@ -487,6 +487,41 @@ class ShopifyAPI {
       );
     }
   }
+
+  /**
+   * Get shop information
+   */
+  async getShopInfo(): Promise<{
+    name: string;
+    domain: string;
+    email: string;
+  }> {
+    const query = `
+      query {
+        shop {
+          name
+          primaryDomain {
+            host
+          }
+          email
+        }
+      }
+    `;
+
+    const response = await this.graphql<{
+      shop: {
+        name: string;
+        primaryDomain: { host: string };
+        email: string;
+      };
+    }>(query);
+
+    return {
+      name: response.shop.name,
+      domain: response.shop.primaryDomain.host,
+      email: response.shop.email,
+    };
+  }
 }
 
 // Export singleton instance
