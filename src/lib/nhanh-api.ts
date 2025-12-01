@@ -4,6 +4,7 @@ import {
   NhanhCustomerSearchParams,
   NhanhCustomerListResponse,
 } from "@/types/nhanh";
+import { getNhanhConfig } from "./api-config";
 
 class NhanhAPI {
   private client: AxiosInstance;
@@ -18,16 +19,19 @@ class NhanhAPI {
     });
   }
 
-  private get appId(): string {
-    return process.env.NHANH_APP_ID || "";
+  private async getAppId(): Promise<string> {
+    const config = await getNhanhConfig();
+    return config.appId || "";
   }
 
-  private get businessId(): string {
-    return process.env.NHANH_BUSINESS_ID || "";
+  private async getBusinessId(): Promise<string> {
+    const config = await getNhanhConfig();
+    return config.businessId || "";
   }
 
-  private get accessToken(): string {
-    return process.env.NHANH_ACCESS_TOKEN || "";
+  private async getAccessToken(): Promise<string> {
+    const config = await getNhanhConfig();
+    return config.accessToken || "";
   }
 
   /**
@@ -40,15 +44,18 @@ class NhanhAPI {
     retries: number = 3
   ): Promise<T> {
     let lastError: any;
+    const appId = await this.getAppId();
+    const businessId = await this.getBusinessId();
+    const accessToken = await this.getAccessToken();
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         // Build URL with query params
-        const url = `${endpoint}?appId=${this.appId}&businessId=${this.businessId}`;
+        const url = `${endpoint}?appId=${appId}&businessId=${businessId}`;
 
         const response = await this.client.post(url, data, {
           headers: {
-            'Authorization': this.accessToken,
+            'Authorization': accessToken,
             'Content-Type': 'application/json',
           },
         });

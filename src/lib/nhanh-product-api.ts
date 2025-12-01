@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from "axios";
 import { NhanhProduct } from "@/types/product";
+import { getNhanhConfig } from "./api-config";
 
 interface NhanhProductListResponse {
   products: NhanhProduct[];
@@ -23,16 +24,19 @@ class NhanhProductAPI {
     });
   }
 
-  private get appId(): string {
-    return process.env.NHANH_APP_ID || "";
+  private async getAppId(): Promise<string> {
+    const config = await getNhanhConfig();
+    return config.appId || "";
   }
 
-  private get businessId(): string {
-    return process.env.NHANH_BUSINESS_ID || "";
+  private async getBusinessId(): Promise<string> {
+    const config = await getNhanhConfig();
+    return config.businessId || "";
   }
 
-  private get accessToken(): string {
-    return process.env.NHANH_ACCESS_TOKEN || "";
+  private async getAccessToken(): Promise<string> {
+    const config = await getNhanhConfig();
+    return config.accessToken || "";
   }
 
   private get storeId(): string | undefined {
@@ -47,11 +51,15 @@ class NhanhProductAPI {
     data: Record<string, any> = {}
   ): Promise<T> {
     try {
-      const url = `${endpoint}?appId=${this.appId}&businessId=${this.businessId}`;
+      const appId = await this.getAppId();
+      const businessId = await this.getBusinessId();
+      const accessToken = await this.getAccessToken();
+      
+      const url = `${endpoint}?appId=${appId}&businessId=${businessId}`;
 
       const response = await this.client.post(url, data, {
         headers: {
-          'Authorization': this.accessToken,
+          'Authorization': accessToken,
           'Content-Type': 'application/json',
         },
       });

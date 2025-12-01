@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nhanhAPI } from "@/lib/nhanh-api";
 import { prisma } from "@/lib/prisma";
+import { formatDuration } from "@/lib/format-duration";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -118,13 +119,14 @@ async function pullAllCustomersInBackground(filters?: {
     : "";
   console.log(`🚀 Starting background pull${filterLog}...`);
   
+  const startTime = Date.now();
   let totalCreated = 0;
   let totalUpdated = 0;
   let totalSkipped = 0;
   let totalProcessed = 0;
   let hasMore = true;
   let batchCount = 0;
-  const batchSize = 100;
+  const batchSize = 200; // Increased from 100 to 200 for faster pulls
   const now = new Date();
 
   // Generate progressId based on filters
@@ -245,30 +247,37 @@ async function pullAllCustomersInBackground(filters?: {
           batchCreated = toCreate.length;
         }
         
-        // Bulk update stale customers
+        // Bulk update stale customers (OPTIMIZED: Larger batches + parallel processing)
         if (toUpdate.length > 0) {
-          const updateBatchSize = 50;
+          const updateBatchSize = 100; // Increased from 50 to 100
+          const updatePromises = [];
+          
           for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
             const batch = toUpdate.slice(i, i + updateBatchSize);
-            await prisma.$transaction(
-              batch.map(customer =>
-                prisma.nhanhCustomer.update({
-                  where: { id: customer.id },
-                  data: {
-                    name: customer.name,
-                    phone: customer.phone || null,
-                    email: customer.email || null,
-                    totalSpent: customer.totalSpent,
-                    address: customer.address || null,
-                    city: customer.city || null,
-                    district: customer.district || null,
-                    ward: customer.ward || null,
-                    lastPulledAt: now,
-                  },
-                })
+            updatePromises.push(
+              prisma.$transaction(
+                batch.map(customer =>
+                  prisma.nhanhCustomer.update({
+                    where: { id: customer.id },
+                    data: {
+                      name: customer.name,
+                      phone: customer.phone || null,
+                      email: customer.email || null,
+                      totalSpent: customer.totalSpent,
+                      address: customer.address || null,
+                      city: customer.city || null,
+                      district: customer.district || null,
+                      ward: customer.ward || null,
+                      lastPulledAt: now,
+                    },
+                  })
+                )
               )
             );
           }
+          
+          // Execute all update batches in parallel
+          await Promise.all(updatePromises);
           batchUpdated = toUpdate.length;
         }
         
@@ -350,8 +359,13 @@ async function pullAllCustomersInBackground(filters?: {
       nextCursor = response.next;
       hasMore = response.hasMore;
 
-      // Update job progress
+      // Update job progress with estimated speed
       if (jobId) {
+        const elapsedSeconds = (Date.now() - startTime) / 1000;
+        const estimatedSpeed = totalProcessed > 0 && elapsedSeconds > 0
+          ? (totalProcessed / elapsedSeconds).toFixed(1)
+          : "0";
+        
         await prisma.backgroundJob.update({
           where: { id: jobId },
           data: {
@@ -365,6 +379,7 @@ async function pullAllCustomersInBackground(filters?: {
               updated: totalUpdated,
               skipped: totalSkipped,
               batches: batchCount,
+              estimatedSpeed: `${estimatedSpeed} customers/sec`,
             },
           },
         }).catch(() => {});
@@ -390,9 +405,9 @@ async function pullAllCustomersInBackground(filters?: {
         },
       });
 
-      // Small delay to avoid rate limiting
+      // Small delay to avoid rate limiting (OPTIMIZED: Reduced from 500ms to 250ms)
       if (hasMore) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 250));
       }
     }
 
@@ -413,6 +428,20 @@ async function pullAllCustomersInBackground(filters?: {
       },
     });
 
+    // Calculate duration and speed
+    const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
+    const speed = totalProcessed > 0 ? (totalProcessed / durationSeconds).toFixed(1) : "0";
+    
+    // Format duration nicely
+    const formatDuration = (seconds: number) => {
+      if (seconds < 60) return `${seconds}s`;
+      if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+      return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+    };
+    const duration = formatDuration(durationSeconds);
+    
+    console.log(`⏱️  Duration: ${duration}, Speed: ${speed} customers/sec`);
+
     // Update job as completed
     if (jobId) {
       await prisma.backgroundJob.update({
@@ -429,6 +458,8 @@ async function pullAllCustomersInBackground(filters?: {
             updated: totalUpdated,
             skipped: totalSkipped,
             batches: batchCount,
+            duration: duration,
+            speed: `${speed} customers/sec`,
           },
         },
       }).catch(() => {});

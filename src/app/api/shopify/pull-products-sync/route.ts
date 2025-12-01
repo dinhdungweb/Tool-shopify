@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import axios from "axios";
+import { getShopifyConfig } from "@/lib/api-config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // Will continue in background
@@ -37,9 +38,11 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
   const statusFilter = status ? ` (status: ${status})` : "";
   console.log(`🚀 Starting background pull of Shopify products${statusFilter}...`);
   
-  const shopDomain = process.env.SHOPIFY_STORE_URL || "";
-  const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || "";
-  const apiVersion = process.env.SHOPIFY_API_VERSION || "2024-01";
+  // Get config from database (with env fallback)
+  const config = await getShopifyConfig();
+  const shopDomain = config.storeUrl || "";
+  const accessToken = config.accessToken || "";
+  const apiVersion = config.apiVersion || "2024-01";
   const graphqlUrl = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
 
   let created = 0;

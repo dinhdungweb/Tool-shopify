@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nhanhProductAPI } from "@/lib/nhanh-product-api";
 import { prisma } from "@/lib/prisma";
+import { formatDuration } from "@/lib/format-duration";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // Will continue in background
@@ -60,9 +61,9 @@ async function pullAllProductsBackground(jobId: string) {
       try {
         console.log(`📦 Fetching page ${pageCount}...`);
 
-        // Fetch products from Nhanh with cursor
+        // Fetch products from Nhanh with cursor (OPTIMIZED: Increased from 100 to 200)
         const response = await nhanhProductAPI.getProducts({
-          limit: 100,
+          limit: 200,
           next: nextCursor,
         });
 
@@ -149,9 +150,9 @@ async function pullAllProductsBackground(jobId: string) {
         console.log(`  💾 Saved to DB in ${dbTime}s (Created: ${toCreate.length}, Updated: ${toUpdate.length})`);
         console.log(`  📊 Progress: ${totalFetched} total products, Page ${pageCount} completed`);
 
-        // Update job progress
+        // Update job progress with estimated speed
         const elapsed = (Date.now() - startTime) / 1000;
-        const speed = totalFetched > 0 ? (totalFetched / elapsed).toFixed(1) : "0";
+        const estimatedSpeed = totalFetched > 0 ? (totalFetched / elapsed).toFixed(1) : "0";
         await prisma.backgroundJob.update({
           where: { id: jobId },
           data: {
@@ -160,7 +161,7 @@ async function pullAllProductsBackground(jobId: string) {
             successful: created + updated,
             failed,
             metadata: {
-              speed: `${speed} products/sec`,
+              estimatedSpeed: `${estimatedSpeed} products/sec`,
               pages: pageCount,
             },
           },
@@ -191,9 +192,9 @@ async function pullAllProductsBackground(jobId: string) {
           },
         });
 
-        // Rate limiting delay
+        // Rate limiting delay (OPTIMIZED: Reduced from 500ms to 250ms)
         if (hasMore) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 250));
         }
 
       } catch (pageError: any) {
@@ -221,8 +222,9 @@ async function pullAllProductsBackground(jobId: string) {
       }
     }
 
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    const speed = totalFetched > 0 ? (totalFetched / parseFloat(duration)).toFixed(1) : "0";
+    const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
+    const speed = totalFetched > 0 ? (totalFetched / durationSeconds).toFixed(1) : "0";
+    const duration = formatDuration(durationSeconds);
     
     console.log(`\n✅ Pull completed successfully!`);
     console.log(`📊 Final stats:`);
@@ -231,7 +233,7 @@ async function pullAllProductsBackground(jobId: string) {
     console.log(`   - Updated: ${updated}`);
     console.log(`   - Failed: ${failed}`);
     console.log(`   - Pages processed: ${pageCount}`);
-    console.log(`   - Duration: ${duration}s (${speed} products/sec)`);
+    console.log(`   - Duration: ${duration} (${speed} products/sec)`);
 
     // Mark as completed
     await prisma.pullProgress.update({
@@ -253,7 +255,7 @@ async function pullAllProductsBackground(jobId: string) {
         failed,
         completedAt: new Date(),
         metadata: {
-          duration: `${duration}s`,
+          duration: formatDuration(duration),
           speed: `${speed} products/sec`,
           pages: pageCount,
           created,

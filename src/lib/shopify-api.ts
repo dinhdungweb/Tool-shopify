@@ -5,6 +5,7 @@ import {
   ShopifyGraphQLResponse,
   ShopifyMetafieldInput,
 } from "@/types/shopify";
+import { getShopifyConfig } from "./api-config";
 
 class ShopifyAPI {
   private client: AxiosInstance;
@@ -18,14 +19,16 @@ class ShopifyAPI {
     });
   }
 
-  private get graphqlEndpoint(): string {
-    const storeUrl = process.env.SHOPIFY_STORE_URL || "";
-    const apiVersion = process.env.SHOPIFY_API_VERSION || "2024-01";
+  private async getGraphqlEndpoint(): Promise<string> {
+    const config = await getShopifyConfig();
+    const storeUrl = config.storeUrl || "";
+    const apiVersion = "2024-01";
     return `https://${storeUrl}/admin/api/${apiVersion}/graphql.json`;
   }
 
-  private get accessToken(): string {
-    return process.env.SHOPIFY_ACCESS_TOKEN || "";
+  private async getAccessToken(): Promise<string> {
+    const config = await getShopifyConfig();
+    return config.accessToken || "";
   }
 
   /**
@@ -37,15 +40,17 @@ class ShopifyAPI {
     retries: number = 3
   ): Promise<T> {
     let lastError: any;
+    const endpoint = await this.getGraphqlEndpoint();
+    const accessToken = await this.getAccessToken();
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         const response = await axios.post<ShopifyGraphQLResponse<T>>(
-          this.graphqlEndpoint,
+          endpoint,
           { query, variables },
           {
             headers: {
-              "X-Shopify-Access-Token": this.accessToken,
+              "X-Shopify-Access-Token": accessToken,
               "Content-Type": "application/json",
             },
           }

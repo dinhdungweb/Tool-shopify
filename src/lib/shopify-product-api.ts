@@ -1,15 +1,22 @@
 import axios, { AxiosInstance } from "axios";
 import { ShopifyProduct } from "@/types/product";
+import { getShopifyConfig } from "./api-config";
 
 class ShopifyProductAPI {
-  private client: AxiosInstance;
+  private clientPromise: Promise<AxiosInstance>;
 
   constructor() {
-    const shopDomain = process.env.SHOPIFY_STORE_URL || process.env.SHOPIFY_SHOP_DOMAIN || "";
-    const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || "";
-    const apiVersion = process.env.SHOPIFY_API_VERSION || "2024-01";
+    // Initialize client lazily with config from database
+    this.clientPromise = this.initializeClient();
+  }
 
-    this.client = axios.create({
+  private async initializeClient(): Promise<AxiosInstance> {
+    const config = await getShopifyConfig();
+    const shopDomain = config.storeUrl || "";
+    const accessToken = config.accessToken || "";
+    const apiVersion = "2024-01";
+
+    return axios.create({
       baseURL: `https://${shopDomain}/admin/api/${apiVersion}`,
       timeout: 30000,
       headers: {
@@ -19,10 +26,15 @@ class ShopifyProductAPI {
     });
   }
 
+  private async getClient(): Promise<AxiosInstance> {
+    return this.clientPromise;
+  }
+
   /**
    * Get all active products from Shopify using REST API with since_id
    */
   async getAllProductsREST(): Promise<ShopifyProduct[]> {
+    const client = await this.getClient();
     const allProducts: ShopifyProduct[] = [];
     let sinceId = 0;
     let pageCount = 0;
@@ -37,7 +49,7 @@ class ShopifyProductAPI {
       const url = `/products.json?limit=250&status=active&since_id=${sinceId}`;
       
       try {
-        const response = await this.client.get(url);
+        const response = await client.get(url);
         const products = response.data.products || [];
 
         console.log(`Page ${pageCount}: Fetched ${products.length} products`);
@@ -108,6 +120,7 @@ class ShopifyProductAPI {
    * Get all active products from Shopify using GraphQL
    */
   async getAllProductsGraphQL(): Promise<ShopifyProduct[]> {
+    const client = await this.getClient();
     const allProducts: ShopifyProduct[] = [];
     let hasNextPage = true;
     let cursor: string | null = null;
@@ -161,7 +174,7 @@ class ShopifyProductAPI {
       `;
 
       try {
-        const response: any = await this.client.post('/graphql.json', {
+        const response: any = await client.post('/graphql.json', {
           query,
           variables: { cursor },
         });
@@ -240,6 +253,7 @@ class ShopifyProductAPI {
     sku?: string;
     barcode?: string;
   }): Promise<ShopifyProduct[]> {
+    const client = await this.getClient();
     const { keyword, sku, barcode } = params;
     
     let query = "";
@@ -253,7 +267,7 @@ class ShopifyProductAPI {
 
     const url = query ? `/products.json?limit=20&title=${encodeURIComponent(keyword || "")}` : `/products.json?limit=20`;
     
-    const response = await this.client.get(url);
+    const response = await client.get(url);
     const products = response.data.products || [];
 
     return products.map((product: any) => {
@@ -280,7 +294,8 @@ class ShopifyProductAPI {
    * Get product by ID
    */
   async getProductById(productId: string): Promise<ShopifyProduct> {
-    const response = await this.client.get(`/products/${productId}.json`);
+    const client = await this.getClient();
+    const response = await client.get(`/products/${productId}.json`);
     const product = response.data.product;
     const variant = product.variants && product.variants.length > 0 ? product.variants[0] : {};
 
@@ -313,7 +328,8 @@ class ShopifyProductAPI {
       return this.locationId;
     }
 
-    const response = await this.client.get('/locations.json');
+    const client = await this.getClient();
+    const response = await client.get('/locations.json');
     const locations = response.data.locations || [];
     
     if (locations.length === 0) {
@@ -336,7 +352,8 @@ class ShopifyProductAPI {
       return cached;
     }
 
-    const response = await this.client.get(`/variants/${variantId}.json`);
+    const client = await this.getClient();
+    const response = await client.get(`/variants/${variantId}.json`);
     const inventoryItemId = response.data.variant?.inventory_item_id?.toString();
     
     if (!inventoryItemId) {
@@ -356,6 +373,8 @@ class ShopifyProductAPI {
     quantity: number,
     inventoryItemId?: string
   ): Promise<{ inventoryItemId: string }> {
+    const client = await this.getClient();
+    
     // Get location ID (cached after first call)
     const locationId = await this.getLocationId();
     
@@ -369,7 +388,7 @@ class ShopifyProductAPI {
     }
 
     // Set inventory level (only 1 API call if inventoryItemId provided!)
-    await this.client.post(`/inventory_levels/set.json`, {
+    await client.post(`/inventory_levels/set.json`, {
       location_id: locationId,
       inventory_item_id: itemId,
       available: quantity,
@@ -387,6 +406,7 @@ class ShopifyProductAPI {
   async batchUpdateVariantInventory(
     updates: Array<{ variantId: string; quantity: number }>
   ): Promise<{ successful: number; failed: number; errors: string[] }> {
+    const client = await this.getClient();
     const results = { successful: 0, failed: 0, errors: [] as string[] };
     
     // Get location ID first (1 API call, cached)
@@ -406,7 +426,7 @@ class ShopifyProductAPI {
         const ids = batch.join(',');
         
         try {
-          const response = await this.client.get(`/variants.json?ids=${ids}`);
+          const response = await client.get(`/variants.json?ids=${ids}`);
           const variants = response.data.variants || [];
           
           for (const variant of variants) {
@@ -433,13 +453,13 @@ class ShopifyProductAPI {
         if (!inventoryItemId) {
           // Fallback: fetch individually
           const inventoryItemIdFetched = await this.getInventoryItemId(update.variantId);
-          await this.client.post(`/inventory_levels/set.json`, {
+          await client.post(`/inventory_levels/set.json`, {
             location_id: locationId,
             inventory_item_id: inventoryItemIdFetched,
             available: update.quantity,
           });
         } else {
-          await this.client.post(`/inventory_levels/set.json`, {
+          await client.post(`/inventory_levels/set.json`, {
             location_id: locationId,
             inventory_item_id: inventoryItemId,
             available: update.quantity,
@@ -460,6 +480,7 @@ class ShopifyProductAPI {
    * Update product variant price
    */
   async updateVariantPrice(variantId: string, price: number, compareAtPrice?: number): Promise<void> {
+    const client = await this.getClient();
     const data: any = {
       variant: {
         id: variantId,
@@ -471,7 +492,7 @@ class ShopifyProductAPI {
       data.variant.compare_at_price = compareAtPrice > 0 ? compareAtPrice.toString() : null;
     }
 
-    await this.client.put(`/variants/${variantId}.json`, data);
+    await client.put(`/variants/${variantId}.json`, data);
   }
 }
 

@@ -1,24 +1,25 @@
 // Shopify Sale API Helper
 import { ShopifyProduct, ShopifyVariant, ShopifyCollection } from "@/types/sale";
+import { getShopifyConfig } from "./api-config";
 
-const SHOPIFY_STORE = process.env.SHOPIFY_STORE_URL;
-const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
-const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2024-01";
-
-function getGraphQLEndpoint() {
-  if (!SHOPIFY_STORE || !SHOPIFY_ACCESS_TOKEN) {
+async function getGraphQLEndpoint() {
+  const config = await getShopifyConfig();
+  if (!config.storeUrl || !config.accessToken) {
     throw new Error("Missing Shopify credentials");
   }
-  return `https://${SHOPIFY_STORE}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
+  const apiVersion = config.apiVersion || "2024-01";
+  return `https://${config.storeUrl}/admin/api/${apiVersion}/graphql.json`;
 }
 
 async function shopifyGraphQL(query: string, variables?: any) {
-  const GRAPHQL_ENDPOINT = getGraphQLEndpoint();
+  const config = await getShopifyConfig();
+  const GRAPHQL_ENDPOINT = await getGraphQLEndpoint();
+  
   const response = await fetch(GRAPHQL_ENDPOINT, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN!,
+      "X-Shopify-Access-Token": config.accessToken!,
     },
     body: JSON.stringify({ query, variables }),
   });
@@ -322,17 +323,20 @@ export const shopifySaleAPI = {
       // Extract numeric ID from GID
       const numericId = variantId.split("/").pop();
       
-      if (!SHOPIFY_STORE || !SHOPIFY_ACCESS_TOKEN) {
+      // Get config from database
+      const config = await getShopifyConfig();
+      if (!config.storeUrl || !config.accessToken) {
         throw new Error("Missing Shopify credentials");
       }
 
-      const url = `https://${SHOPIFY_STORE}/admin/api/${SHOPIFY_API_VERSION}/variants/${numericId}.json`;
+      const apiVersion = config.apiVersion || "2024-01";
+      const url = `https://${config.storeUrl}/admin/api/${apiVersion}/variants/${numericId}.json`;
       
       const response = await fetch(url, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+          "X-Shopify-Access-Token": config.accessToken,
         },
         body: JSON.stringify({
           variant: {

@@ -64,7 +64,10 @@ export function clearApiConfigCache() {
  */
 export async function getShopifyConfig() {
   const config = await getApiConfig();
-  return config.shopify;
+  return {
+    ...config.shopify,
+    apiVersion: "2024-01", // Default API version
+  };
 }
 
 /**
