@@ -185,6 +185,10 @@ export default function JobTrackingTable() {
                   { value: "CUSTOMER_SYNC", label: "Customer Sync" },
                   { value: "PULL_SHOPIFY_PRODUCTS", label: "Pull Shopify Products" },
                   { value: "PULL_NHANH_PRODUCTS", label: "Pull Nhanh Products" },
+                  { value: "PULL_SHOPIFY_CUSTOMERS", label: "Pull Shopify Customers" },
+                  { value: "PULL_NHANH_CUSTOMERS", label: "Pull Nhanh Customers" },
+                  { value: "AUTO_MATCH_PRODUCTS", label: "Auto Match Products" },
+                  { value: "AUTO_MATCH_CUSTOMERS", label: "Auto Match Customers" },
                 ]}
                 defaultValue={filter}
                 onChange={setFilter}

@@ -15,10 +15,24 @@ export const maxDuration = 300; // 5 minutes timeout
  * 3. Bulk insert all mappings at once
  */
 export async function POST(request: NextRequest) {
+  let job: any = null;
+  
   try {
     const { dryRun = false } = await request.json().catch(() => ({ dryRun: false }));
 
-    console.log(`🚀 Starting SQL-optimized product auto-match...`);
+    // Create background job for tracking
+    job = await prisma.backgroundJob.create({
+      data: {
+        type: "AUTO_MATCH_PRODUCTS",
+        total: 0,
+        status: "RUNNING",
+        metadata: {
+          dryRun,
+        },
+      },
+    });
+
+    console.log(`🚀 Starting SQL-optimized product auto-match (Job: ${job.id})...`);
     const startTime = Date.now();
 
     // Step 1: Find matches using raw SQL with SKU matching
@@ -53,6 +67,18 @@ export async function POST(request: NextRequest) {
     
     console.log(`✅ Found ${matches.length} potential matches by SKU`);
 
+    // Update job with total matches found
+    await prisma.backgroundJob.update({
+      where: { id: job.id },
+      data: {
+        total: matches.length,
+        metadata: {
+          dryRun,
+          potentialMatches: matches.length,
+        },
+      },
+    }).catch(() => {});
+
     // Step 2: Filter to only exact 1-to-1 matches
     // Group by Nhanh product ID to check for duplicates
     const nhanhMatchMap = new Map<string, any[]>();
@@ -85,6 +111,21 @@ export async function POST(request: NextRequest) {
 
     const skippedNhanh = nhanhMatchMap.size - exactMatches.length;
     const skippedShopify = shopifyMatchMap.size - exactMatches.length;
+
+    // Update job with filtered matches
+    await prisma.backgroundJob.update({
+      where: { id: job.id },
+      data: {
+        total: exactMatches.length,
+        processed: exactMatches.length,
+        metadata: {
+          dryRun,
+          potentialMatches: matches.length,
+          exactMatches: exactMatches.length,
+          skipped: Math.max(skippedNhanh, skippedShopify),
+        },
+      },
+    }).catch(() => {});
 
     const results = {
       total: matches.length,
@@ -175,19 +216,60 @@ export async function POST(request: NextRequest) {
         await prisma.$executeRawUnsafe(insertQuery);
         createdCount += batch.length;
         console.log(`  ✅ Batch ${i + 1}/${totalBatches}: Created ${batch.length} mappings (total: ${createdCount}/${exactMatches.length})`);
+
+        // Update job progress after each batch
+        await prisma.backgroundJob.update({
+          where: { id: job.id },
+          data: {
+            successful: createdCount,
+            metadata: {
+              dryRun,
+              potentialMatches: matches.length,
+              exactMatches: exactMatches.length,
+              created: createdCount,
+              batches: i + 1,
+              totalBatches,
+            },
+          },
+        }).catch(() => {});
       }
       
       console.log(`✅ Bulk insert completed: ${createdCount} product mappings created`);
     }
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    const speed = exactMatches.length > 0 ? (exactMatches.length / parseFloat(duration)).toFixed(1) : "0";
     console.log(`✅ SQL product auto-match completed in ${duration}s`);
+
+    // Update job as completed
+    await prisma.backgroundJob.update({
+      where: { id: job.id },
+      data: {
+        status: "COMPLETED",
+        total: exactMatches.length,
+        processed: exactMatches.length,
+        successful: dryRun ? 0 : exactMatches.length,
+        failed: 0,
+        completedAt: new Date(),
+        metadata: {
+          dryRun,
+          potentialMatches: matches.length,
+          exactMatches: exactMatches.length,
+          created: dryRun ? 0 : exactMatches.length,
+          skipped: Math.max(skippedNhanh, skippedShopify),
+          duration: `${duration}s`,
+          speed: `${speed} products/sec`,
+          method: "SQL JOIN by SKU",
+        },
+      },
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,
       data: {
         ...results,
         dryRun,
+        jobId: job.id,
         duration: `${duration}s`,
         method: "SQL JOIN by SKU",
         message: dryRun
@@ -197,6 +279,19 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error("Error in SQL product auto-match:", error);
+
+    // Update job as failed
+    if (job?.id) {
+      await prisma.backgroundJob.update({
+        where: { id: job.id },
+        data: {
+          status: "FAILED",
+          error: error.message,
+          completedAt: new Date(),
+        },
+      }).catch(() => {});
+    }
+
     return NextResponse.json(
       {
         success: false,

@@ -1,9 +1,7 @@
 // Sale Campaign Scheduler
 import cron from "node-cron";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "./prisma";
 import { saleService } from "./sale-service";
-
-const prisma = new PrismaClient();
 
 class SaleScheduler {
   private task: cron.ScheduledTask | null = null;

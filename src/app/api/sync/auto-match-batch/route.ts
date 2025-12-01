@@ -46,10 +46,25 @@ function extractPhonesFromNote(note: string): string[] {
 }
 
 export async function POST(request: NextRequest) {
+  let job: any = null;
+  
   try {
     const { dryRun = false, batchSize = 1000 } = await request.json();
 
-    console.log("🚀 Starting batch-based auto-match...");
+    // Create background job for tracking
+    job = await prisma.backgroundJob.create({
+      data: {
+        type: "AUTO_MATCH_CUSTOMERS",
+        total: 0,
+        status: "RUNNING",
+        metadata: {
+          dryRun,
+          batchSize,
+        },
+      },
+    });
+
+    console.log(`🚀 Starting batch-based auto-match (Job: ${job.id})...`);
     const startTime = Date.now();
 
     // Step 1: Get unmapped Nhanh customers with phone
@@ -73,12 +88,29 @@ export async function POST(request: NextRequest) {
 
     console.log(`✅ Found ${unmappedCustomers.length} unmapped customers`);
 
+    // Update job with total
+    await prisma.backgroundJob.update({
+      where: { id: job.id },
+      data: {
+        total: unmappedCustomers.length,
+      },
+    }).catch(() => {});
+
     if (unmappedCustomers.length === 0) {
+      await prisma.backgroundJob.update({
+        where: { id: job.id },
+        data: {
+          status: "COMPLETED",
+          completedAt: new Date(),
+        },
+      }).catch(() => {});
+
       return NextResponse.json({
         success: true,
         data: {
           matched: 0,
           skipped: 0,
+          jobId: job.id,
           message: "No unmapped customers found",
         },
       });
@@ -223,6 +255,30 @@ export async function POST(request: NextRequest) {
         console.log(`    💾 Created ${matchesToCreate.length} mappings`);
         matchesToCreate.length = 0; // Clear array
       }
+
+      // Update job progress after each batch
+      const processed = Math.min(i + batchSize, unmappedCustomers.length);
+      const elapsed = (Date.now() - startTime) / 1000;
+      const speed = processed > 0 ? (processed / elapsed).toFixed(1) : "0";
+
+      await prisma.backgroundJob.update({
+        where: { id: job.id },
+        data: {
+          processed,
+          successful: matched,
+          metadata: {
+            dryRun,
+            batchSize,
+            shopifyCustomersIndexed: shopifyCustomers.length,
+            phoneVariations: phoneMap.size,
+            matched,
+            skipped,
+            batches: batchNum,
+            totalBatches,
+            speed: `${speed} customers/sec`,
+          },
+        },
+      }).catch(() => {});
     }
 
     // Create remaining mappings
@@ -235,7 +291,32 @@ export async function POST(request: NextRequest) {
     }
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    const speed = unmappedCustomers.length > 0 ? (unmappedCustomers.length / parseFloat(duration)).toFixed(1) : "0";
     console.log(`🎉 Completed in ${duration}s! Matched: ${matched}, Skipped: ${skipped}`);
+
+    // Update job as completed
+    await prisma.backgroundJob.update({
+      where: { id: job.id },
+      data: {
+        status: "COMPLETED",
+        total: unmappedCustomers.length,
+        processed: unmappedCustomers.length,
+        successful: dryRun ? 0 : matched,
+        completedAt: new Date(),
+        metadata: {
+          dryRun,
+          batchSize,
+          shopifyCustomersIndexed: shopifyCustomers.length,
+          phoneVariations: phoneMap.size,
+          matched,
+          skipped,
+          created: dryRun ? 0 : matched,
+          duration: `${duration}s`,
+          speed: `${speed} customers/sec`,
+          batches: totalBatches,
+        },
+      },
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,
@@ -243,6 +324,7 @@ export async function POST(request: NextRequest) {
         total: unmappedCustomers.length,
         matched,
         skipped,
+        jobId: job.id,
         duration: `${duration}s`,
         dryRun,
         message: dryRun
@@ -252,6 +334,19 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error("Error in batch auto-match:", error);
+
+    // Update job as failed
+    if (job?.id) {
+      await prisma.backgroundJob.update({
+        where: { id: job.id },
+        data: {
+          status: "FAILED",
+          error: error.message,
+          completedAt: new Date(),
+        },
+      }).catch(() => {});
+    }
+
     return NextResponse.json(
       {
         success: false,

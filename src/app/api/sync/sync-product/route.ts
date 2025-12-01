@@ -1,10 +1,8 @@
 // API Route: Sync Product from Nhanh to Shopify
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 import { shopifyProductAPI } from "@/lib/shopify-product-api";
 import { nhanhProductAPI } from "@/lib/nhanh-product-api";
-
-const prisma = new PrismaClient();
 
 export const dynamic = "force-dynamic";
 

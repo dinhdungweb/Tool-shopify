@@ -59,10 +59,22 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Start background processing with filters (don't await)
-    pullAllCustomersInBackground({ type, lastBoughtDateFrom, lastBoughtDateTo });
+    // Create background job for tracking
+    const job = await prisma.backgroundJob.create({
+      data: {
+        type: "PULL_NHANH_CUSTOMERS",
+        total: 0,
+        status: "RUNNING",
+        metadata: {
+          filters: { type, lastBoughtDateFrom, lastBoughtDateTo },
+        },
+      },
+    });
 
-    let message = "Background pull started. Check logs or database for progress.";
+    // Start background processing with filters (don't await)
+    pullAllCustomersInBackground({ type, lastBoughtDateFrom, lastBoughtDateTo }, job.id);
+
+    let message = `Background pull started! Check Job Tracking for progress. (Job ID: ${job.id})`;
     if (forceRestart) {
       message += " (restarting from beginning)";
     }
@@ -100,7 +112,7 @@ async function pullAllCustomersInBackground(filters?: {
   type?: number;
   lastBoughtDateFrom?: string;
   lastBoughtDateTo?: string;
-}) {
+}, jobId?: string) {
   const filterLog = filters && Object.keys(filters).length > 0 
     ? ` with filters: ${JSON.stringify(filters)}`
     : "";
@@ -338,6 +350,26 @@ async function pullAllCustomersInBackground(filters?: {
       nextCursor = response.next;
       hasMore = response.hasMore;
 
+      // Update job progress
+      if (jobId) {
+        await prisma.backgroundJob.update({
+          where: { id: jobId },
+          data: {
+            total: totalProcessed,
+            processed: totalProcessed,
+            successful: totalCreated + totalUpdated,
+            failed: 0,
+            metadata: {
+              filters,
+              created: totalCreated,
+              updated: totalUpdated,
+              skipped: totalSkipped,
+              batches: batchCount,
+            },
+          },
+        }).catch(() => {});
+      }
+
       // Save progress with filter metadata
       await prisma.pullProgress.upsert({
         where: { id: progressId },
@@ -380,8 +412,41 @@ async function pullAllCustomersInBackground(filters?: {
         nextCursor: undefined,
       },
     });
+
+    // Update job as completed
+    if (jobId) {
+      await prisma.backgroundJob.update({
+        where: { id: jobId },
+        data: {
+          status: "COMPLETED",
+          total: totalProcessed,
+          processed: totalProcessed,
+          successful: totalCreated + totalUpdated,
+          completedAt: new Date(),
+          metadata: {
+            filters,
+            created: totalCreated,
+            updated: totalUpdated,
+            skipped: totalSkipped,
+            batches: batchCount,
+          },
+        },
+      }).catch(() => {});
+    }
   } catch (error) {
     console.error("❌ Error in background pull:", error);
+
+    // Update job as failed
+    if (jobId) {
+      await prisma.backgroundJob.update({
+        where: { id: jobId },
+        data: {
+          status: "FAILED",
+          error: error instanceof Error ? error.message : String(error),
+          completedAt: new Date(),
+        },
+      }).catch(() => {});
+    }
     // Save error state
     await prisma.pullProgress.upsert({
       where: { id: progressId },

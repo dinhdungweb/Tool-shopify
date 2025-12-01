@@ -1,9 +1,7 @@
 // API Route: Pull Products from Nhanh (OPTIMIZED with bulk operations)
 import { NextRequest, NextResponse } from "next/server";
 import { nhanhProductAPI } from "@/lib/nhanh-product-api";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // Will continue in background

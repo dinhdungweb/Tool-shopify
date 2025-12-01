@@ -272,23 +272,6 @@ export const syncClient = {
     });
   },
 
-  async autoMatchSQL(dryRun: boolean = false) {
-    return apiCall<{
-      total: number;
-      matched: number;
-      failed: number;
-      skipped: number;
-      details: any[];
-      dryRun: boolean;
-      message: string;
-      duration: string;
-      method: string;
-    }>("/api/sync/auto-match-sql", {
-      method: "POST",
-      body: JSON.stringify({ dryRun }),
-    });
-  },
-
   async autoMatchBatch(dryRun: boolean = false, batchSize: number = 1000) {
     return apiCall<{
       total: number;

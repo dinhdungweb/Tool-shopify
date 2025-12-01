@@ -1,8 +1,6 @@
 // Cron Scheduler for Auto Sync
 import cron from 'node-cron';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from './prisma';
 
 class CronScheduler {
   private task: cron.ScheduledTask | null = null;

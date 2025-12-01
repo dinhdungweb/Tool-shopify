@@ -1,9 +1,7 @@
 // API Route: Pull Products from Shopify (OPTIMIZED with bulk operations)
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 import axios from "axios";
-
-const prisma = new PrismaClient();
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // Will continue in background
