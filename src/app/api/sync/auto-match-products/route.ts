@@ -237,8 +237,10 @@ export async function POST(request: NextRequest) {
       console.log(`✅ Bulk insert completed: ${createdCount} product mappings created`);
     }
 
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
+    const duration = durationSeconds.toFixed(2);
     const speed = exactMatches.length > 0 ? (exactMatches.length / parseFloat(duration)).toFixed(1) : "0";
+    const durationFormatted = durationSeconds < 60 ? `${durationSeconds}s` : `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;
     console.log(`✅ SQL product auto-match completed in ${duration}s`);
 
     // Update job as completed
@@ -257,7 +259,7 @@ export async function POST(request: NextRequest) {
           exactMatches: exactMatches.length,
           created: dryRun ? 0 : exactMatches.length,
           skipped: Math.max(skippedNhanh, skippedShopify),
-          duration: `${duration}s`,
+          duration: durationFormatted,
           speed: `${speed} products/sec`,
           method: "SQL JOIN by SKU",
         },
@@ -270,11 +272,11 @@ export async function POST(request: NextRequest) {
         ...results,
         dryRun,
         jobId: job.id,
-        duration: `${duration}s`,
+        duration: durationFormatted,
         method: "SQL JOIN by SKU",
         message: dryRun
-          ? `Dry run completed in ${duration}s: ${results.matched} potential matches found`
-          : `Auto-match completed in ${duration}s: ${results.matched} products matched by SKU`,
+          ? `Dry run completed in ${durationFormatted}: ${results.matched} potential matches found`
+          : `Auto-match completed in ${durationFormatted}: ${results.matched} products matched by SKU`,
       },
     });
   } catch (error: any) {

@@ -176,9 +176,10 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string) {
     }
   }
 
-  const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-  const speed = (mappingIds.length / parseFloat(duration)).toFixed(1);
-  console.log(`🎉 Background bulk sync completed in ${duration}s (${speed} customers/sec)!`);
+  const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
+  const speed = (mappingIds.length / durationSeconds).toFixed(1);
+  const durationFormatted = durationSeconds < 60 ? `${durationSeconds}s` : `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;
+  console.log(`🎉 Background bulk sync completed in ${durationFormatted} (${speed} customers/sec)!`);
   console.log(`   ✅ Successful: ${successful}`);
   console.log(`   ❌ Failed: ${failed}`);
 
@@ -192,7 +193,7 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string) {
       failed,
       completedAt: new Date(),
       metadata: {
-        duration: `${duration}s`,
+        duration: durationFormatted,
         speed: `${speed} customers/sec`,
       },
     },

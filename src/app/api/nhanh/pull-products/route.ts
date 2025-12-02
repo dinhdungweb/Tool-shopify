@@ -61,9 +61,9 @@ async function pullAllProductsBackground(jobId: string) {
       try {
         console.log(`📦 Fetching page ${pageCount}...`);
 
-        // Fetch products from Nhanh with cursor (OPTIMIZED: Increased from 100 to 200)
+        // Fetch products from Nhanh with cursor (EXTREME: Increased to 1000)
         const response = await nhanhProductAPI.getProducts({
-          limit: 200,
+          limit: 1000,
           next: nextCursor,
         });
 
@@ -113,34 +113,41 @@ async function pullAllProductsBackground(jobId: string) {
           created += toCreate.length;
         }
         
-        // Bulk update existing products (in batches)
+        // Bulk update existing products (EXTREME: Parallel processing with batch 200)
         if (toUpdate.length > 0) {
-          const updateBatchSize = 100;
+          const updateBatchSize = 200; // Increased from 100 to 200
+          const updatePromises = [];
+          
           for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
             const batch = toUpdate.slice(i, i + updateBatchSize);
-            await prisma.$transaction(
-              batch.map(p =>
-                prisma.nhanhProduct.update({
-                  where: { id: p.id },
-                  data: {
-                    name: p.name,
-                    sku: p.sku,
-                    barcode: p.barcode,
-                    price: p.price,
-                    comparePrice: p.comparePrice,
-                    quantity: p.quantity,
-                    categoryId: p.categoryId,
-                    categoryName: p.categoryName,
-                    brandId: p.brandId,
-                    brandName: p.brandName,
-                    description: p.description,
-                    images: p.images || [],
-                    lastPulledAt: new Date(),
-                  },
-                })
+            updatePromises.push(
+              prisma.$transaction(
+                batch.map(p =>
+                  prisma.nhanhProduct.update({
+                    where: { id: p.id },
+                    data: {
+                      name: p.name,
+                      sku: p.sku,
+                      barcode: p.barcode,
+                      price: p.price,
+                      comparePrice: p.comparePrice,
+                      quantity: p.quantity,
+                      categoryId: p.categoryId,
+                      categoryName: p.categoryName,
+                      brandId: p.brandId,
+                      brandName: p.brandName,
+                      description: p.description,
+                      images: p.images || [],
+                      lastPulledAt: new Date(),
+                    },
+                  })
+                )
               )
             );
           }
+          
+          // Execute all update batches in parallel
+          await Promise.all(updatePromises);
           updated += toUpdate.length;
         }
 
@@ -192,9 +199,9 @@ async function pullAllProductsBackground(jobId: string) {
           },
         });
 
-        // Rate limiting delay (OPTIMIZED: Reduced from 500ms to 250ms)
+        // Rate limiting delay (EXTREME: Reduced to 30ms for maximum speed)
         if (hasMore) {
-          await new Promise(resolve => setTimeout(resolve, 250));
+          await new Promise(resolve => setTimeout(resolve, 30));
         }
 
       } catch (pageError: any) {
@@ -255,7 +262,7 @@ async function pullAllProductsBackground(jobId: string) {
         failed,
         completedAt: new Date(),
         metadata: {
-          duration: formatDuration(duration),
+          duration: duration, // Already formatted by formatDuration()
           speed: `${speed} products/sec`,
           pages: pageCount,
           created,

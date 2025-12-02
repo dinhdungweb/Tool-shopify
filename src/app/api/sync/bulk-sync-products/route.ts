@@ -257,11 +257,12 @@ async function bulkSyncProductsBackground(mappingIds: string[], jobId: string) {
     }
   }
 
-  const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-  const speed = (mappingIds.length / parseFloat(duration)).toFixed(1);
+  const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
+  const speed = (mappingIds.length / durationSeconds).toFixed(1);
+  const durationFormatted = durationSeconds < 60 ? `${durationSeconds}s` : `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;
   
   console.log(`\n🎉 SUPER OPTIMIZED bulk sync completed!`);
-  console.log(`⏱️  Duration: ${duration}s (${speed} products/sec)`);
+  console.log(`⏱️  Duration: ${durationFormatted} (${speed} products/sec)`);
   console.log(`✅ Successful: ${successful}`);
   console.log(`❌ Failed: ${failed}`);
   if (rateLimitHits > 0) {
@@ -278,7 +279,7 @@ async function bulkSyncProductsBackground(mappingIds: string[], jobId: string) {
       failed,
       completedAt: new Date(),
       metadata: {
-        duration: `${duration}s`,
+        duration: durationFormatted,
         speed: `${speed} products/sec`,
         rateLimitHits,
       },

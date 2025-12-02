@@ -290,9 +290,10 @@ export async function POST(request: NextRequest) {
       console.log(`  💾 Created ${matchesToCreate.length} mappings`);
     }
 
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    const speed = unmappedCustomers.length > 0 ? (unmappedCustomers.length / parseFloat(duration)).toFixed(1) : "0";
-    console.log(`🎉 Completed in ${duration}s! Matched: ${matched}, Skipped: ${skipped}`);
+    const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
+    const speed = unmappedCustomers.length > 0 ? (unmappedCustomers.length / durationSeconds).toFixed(1) : "0";
+    const durationFormatted = durationSeconds < 60 ? `${durationSeconds}s` : `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;
+    console.log(`🎉 Completed in ${durationFormatted}! Matched: ${matched}, Skipped: ${skipped}`);
 
     // Update job as completed
     await prisma.backgroundJob.update({
@@ -311,7 +312,7 @@ export async function POST(request: NextRequest) {
           matched,
           skipped,
           created: dryRun ? 0 : matched,
-          duration: `${duration}s`,
+          duration: durationFormatted,
           speed: `${speed} customers/sec`,
           batches: totalBatches,
         },
@@ -325,11 +326,11 @@ export async function POST(request: NextRequest) {
         matched,
         skipped,
         jobId: job.id,
-        duration: `${duration}s`,
+        duration: durationFormatted,
         dryRun,
         message: dryRun
-          ? `Dry run: Found ${matched} potential matches in ${duration}s`
-          : `Batch auto-match completed: ${matched} customers matched in ${duration}s`,
+          ? `Dry run: Found ${matched} potential matches in ${durationSeconds}s`
+          : `Batch auto-match completed: ${matched} customers matched in ${durationSeconds}s`,
       },
     });
   } catch (error: any) {

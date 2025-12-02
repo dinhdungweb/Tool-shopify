@@ -17,6 +17,42 @@ export async function POST(request: NextRequest) {
     const limitParam = searchParams.get('limit');
     const limit = limitParam ? parseInt(limitParam) : undefined; // No limit by default
 
+    // Create background job for tracking
+    const job = await prisma.backgroundJob.create({
+      data: {
+        type: 'AUTO_SYNC_CUSTOMERS',
+        total: 0,
+        status: 'RUNNING',
+        metadata: {
+          limit: limit || 'all',
+        },
+      },
+    });
+
+    console.log(`Starting global auto sync (Job: ${job.id})...`);
+
+    // Start background processing (don't await)
+    autoSyncInBackground(job.id, limit);
+
+    return NextResponse.json({
+      success: true,
+      jobId: job.id,
+      message: 'Background auto sync started! Check Job Tracking for progress.',
+    });
+  } catch (error: any) {
+    console.error('Error starting auto sync:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || 'Failed to start auto sync',
+      },
+      { status: 500 }
+    );
+  }
+}
+
+async function autoSyncInBackground(jobId: string, limit?: number) {
+  try {
     console.log('Starting global auto sync...');
 
     // Find all SYNCED mappings
@@ -36,6 +72,14 @@ export async function POST(request: NextRequest) {
       failed: 0,
       errors: [] as Array<{ mappingId: string; customerName: string; error: string }>,
     };
+
+    // Update job with total count
+    await prisma.backgroundJob.update({
+      where: { id: jobId },
+      data: {
+        total: mappings.length,
+      },
+    }).catch(() => {});
 
     // Sync mappings in parallel batches for better performance
     // Conservative settings to avoid rate limiting from Nhanh/Shopify APIs
@@ -115,6 +159,21 @@ export async function POST(request: NextRequest) {
       
       console.log(`Batch ${batchNumber}/${totalBatches} completed: ${batchResults.filter(r => r.success).length} successful, ${batchResults.filter(r => !r.success).length} failed`);
 
+      // Update job progress
+      await prisma.backgroundJob.update({
+        where: { id: jobId },
+        data: {
+          processed: i + batch.length,
+          successful: results.successful,
+          failed: results.failed,
+          metadata: {
+            limit: limit || 'all',
+            currentBatch: batchNumber,
+            totalBatches,
+          },
+        },
+      }).catch(() => {});
+
       // Delay between batches to avoid rate limiting
       if (i + BATCH_SIZE < mappings.length) {
         console.log(`Waiting ${BATCH_DELAY}ms before next batch...`);
@@ -124,20 +183,33 @@ export async function POST(request: NextRequest) {
 
     console.log('Global auto sync completed:', results);
 
-    return NextResponse.json({
-      success: true,
-      message: 'Global auto sync completed',
-      results,
-    });
+    // Mark job as completed
+    await prisma.backgroundJob.update({
+      where: { id: jobId },
+      data: {
+        status: 'COMPLETED',
+        processed: mappings.length,
+        successful: results.successful,
+        failed: results.failed,
+        completedAt: new Date(),
+        metadata: {
+          limit: limit || 'all',
+          results,
+        },
+      },
+    }).catch(() => {});
   } catch (error: any) {
     console.error('Error in global auto sync:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message || 'Failed to run global auto sync',
+    
+    // Mark job as failed
+    await prisma.backgroundJob.update({
+      where: { id: jobId },
+      data: {
+        status: 'FAILED',
+        error: error.message,
+        completedAt: new Date(),
       },
-      { status: 500 }
-    );
+    }).catch(() => {});
   }
 }
 

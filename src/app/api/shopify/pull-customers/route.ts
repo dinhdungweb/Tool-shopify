@@ -278,7 +278,8 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
       }
     }
 
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
+    const duration = durationSeconds.toFixed(2);
     const speed = totalFetched > 0 ? (totalFetched / parseFloat(duration)).toFixed(1) : "0";
 
     console.log(`\n✅ Pull completed successfully!`);
@@ -288,7 +289,7 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
     console.log(`   - Updated: ${updated}`);
     console.log(`   - Failed: ${failed}`);
     console.log(`   - Pages processed: ${pageCount}`);
-    console.log(`   - Duration: ${duration}s (${speed} customers/sec)`);
+    console.log(`   - Duration: ${duration} (${speed} customers/sec)`);
 
     // Mark as completed
     await prisma.pullProgress.update({
@@ -312,7 +313,7 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
           completedAt: new Date(),
           metadata: {
             query: query || null,
-            duration: `${duration}s`,
+            duration: duration,
             speed: `${speed} customers/sec`,
             pages: pageCount,
             created,

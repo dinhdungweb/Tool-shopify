@@ -12,6 +12,42 @@ export const maxDuration = 300;
  */
 export async function POST(request: NextRequest) {
   try {
+    // Create background job for tracking
+    const job = await prisma.backgroundJob.create({
+      data: {
+        type: 'INCREMENTAL_PULL_CUSTOMERS',
+        total: 0,
+        status: 'RUNNING',
+        metadata: {
+          mode: 'incremental',
+        },
+      },
+    });
+
+    console.log(`Starting incremental pull (Job: ${job.id})...`);
+
+    // Start background processing (don't await)
+    incrementalPullInBackground(job.id);
+
+    return NextResponse.json({
+      success: true,
+      jobId: job.id,
+      message: 'Background incremental pull started! Check Job Tracking for progress.',
+    });
+  } catch (error: any) {
+    console.error('Error starting incremental pull:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || 'Failed to start incremental pull',
+      },
+      { status: 500 }
+    );
+  }
+}
+
+async function incrementalPullInBackground(jobId: string) {
+  try {
     console.log("Starting incremental pull...");
 
     let created = 0;
@@ -129,6 +165,23 @@ export async function POST(request: NextRequest) {
         `✅ Processed ${totalProcessed} customers (${created} new, ${updated} updated, ${skipped} skipped, ${consecutiveSkipped} consecutive skipped)`
       );
 
+      // Update job progress
+      await prisma.backgroundJob.update({
+        where: { id: jobId },
+        data: {
+          total: totalProcessed,
+          processed: totalProcessed,
+          successful: created + updated,
+          metadata: {
+            mode: 'incremental',
+            created,
+            updated,
+            skipped,
+            consecutiveSkipped,
+          },
+        },
+      }).catch(() => {});
+
       // Stop early if we've seen too many consecutive fresh customers
       if (consecutiveSkipped >= maxConsecutiveSkipped) {
         console.log(
@@ -152,25 +205,35 @@ export async function POST(request: NextRequest) {
       `🎉 ${message}: ${totalProcessed} processed (${created} new, ${updated} updated, ${skipped} skipped)`
     );
 
-    return NextResponse.json({
-      success: true,
+    // Mark job as completed
+    await prisma.backgroundJob.update({
+      where: { id: jobId },
       data: {
+        status: 'COMPLETED',
         total: totalProcessed,
-        created,
-        updated,
-        skipped,
-        stoppedEarly,
+        processed: totalProcessed,
+        successful: created + updated,
+        completedAt: new Date(),
+        metadata: {
+          mode: 'incremental',
+          created,
+          updated,
+          skipped,
+          stoppedEarly,
+        },
       },
-      message: `${created} new, ${updated} updated, ${skipped} skipped${stoppedEarly ? " (stopped early)" : ""}`,
-    });
+    }).catch(() => {});
   } catch (error: any) {
     console.error("Error in incremental pull:", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "Failed to pull customers incrementally",
+    
+    // Mark job as failed
+    await prisma.backgroundJob.update({
+      where: { id: jobId },
+      data: {
+        status: 'FAILED',
+        error: error.message,
+        completedAt: new Date(),
       },
-      { status: 500 }
-    );
+    }).catch(() => {});
   }
 }
