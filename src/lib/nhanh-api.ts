@@ -135,6 +135,8 @@ class NhanhAPI {
         size: limit,
       },
     };
+    
+    console.log(`🔍 Nhanh API Request: size=${limit}, filters=`, JSON.stringify(filters));
 
     // Add next cursor if provided (for subsequent pages)
     if (next) {
@@ -148,9 +150,10 @@ class NhanhAPI {
     const responsePaginator = apiResponse.paginator || {};
     
     console.log("Nhanh API Response:", {
-      dataLength: Array.isArray(responseData) ? responseData.length : 0,
+      requestedSize: limit,
+      actualReceived: Array.isArray(responseData) ? responseData.length : 0,
       hasNext: !!responsePaginator.next,
-      nextCursor: responsePaginator.next,
+      nextCursor: responsePaginator.next ? `{id: ${responsePaginator.next.id}}` : null,
     });
     
     // Transform response to match our interface
