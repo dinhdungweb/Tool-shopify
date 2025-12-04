@@ -127,7 +127,7 @@ async function pullAllCustomersInBackground(filters?: {
   let hasMore = true;
   let batchCount = 0;
   const batchSize = 1000; // EXTREME OPTIMIZED: Maximum batch size for fastest pulls
-  const updateBatchSize = 200; // EXTREME: Increased to 200 for maximum speed
+  const updateBatchSize = 300; // SAFE OPTIMIZED: Increased to 300 for better performance
   const now = new Date();
 
   // Generate progressId based on filters
@@ -365,8 +365,8 @@ async function pullAllCustomersInBackground(filters?: {
       nextCursor = response.next;
       hasMore = response.hasMore;
 
-      // Update job progress with estimated speed
-      if (jobId) {
+      // Update job progress with estimated speed (OPTIMIZED: Every 10 batches)
+      if (jobId && (batchCount % 10 === 0 || !hasMore)) {
         const elapsedSeconds = (Date.now() - startTime) / 1000;
         const estimatedSpeed = totalProcessed > 0 && elapsedSeconds > 0
           ? (totalProcessed / elapsedSeconds).toFixed(1)
@@ -411,9 +411,9 @@ async function pullAllCustomersInBackground(filters?: {
         },
       });
 
-      // Small delay to avoid rate limiting (EXTREME OPTIMIZED: Minimal delay for maximum speed)
+      // Small delay to avoid rate limiting (SAFE OPTIMIZED: Minimal safe delay)
       if (hasMore) {
-        await new Promise((resolve) => setTimeout(resolve, 30)); // Reduced to 30ms for extreme speed
+        await new Promise((resolve) => setTimeout(resolve, 10)); // Reduced to 10ms for optimal speed
       }
     }
 

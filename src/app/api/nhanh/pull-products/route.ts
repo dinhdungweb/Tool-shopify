@@ -157,22 +157,24 @@ async function pullAllProductsBackground(jobId: string) {
         console.log(`  💾 Saved to DB in ${dbTime}s (Created: ${toCreate.length}, Updated: ${toUpdate.length})`);
         console.log(`  📊 Progress: ${totalFetched} total products, Page ${pageCount} completed`);
 
-        // Update job progress with estimated speed
-        const elapsed = (Date.now() - startTime) / 1000;
-        const estimatedSpeed = totalFetched > 0 ? (totalFetched / elapsed).toFixed(1) : "0";
-        await prisma.backgroundJob.update({
-          where: { id: jobId },
-          data: {
-            total: totalFetched,
-            processed: totalFetched,
-            successful: created + updated,
-            failed,
-            metadata: {
-              estimatedSpeed: `${estimatedSpeed} products/sec`,
-              pages: pageCount,
+        // Update job progress with estimated speed (OPTIMIZED: Every 10 pages)
+        if (pageCount % 10 === 0 || !hasMore) {
+          const elapsed = (Date.now() - startTime) / 1000;
+          const estimatedSpeed = totalFetched > 0 ? (totalFetched / elapsed).toFixed(1) : "0";
+          await prisma.backgroundJob.update({
+            where: { id: jobId },
+            data: {
+              total: totalFetched,
+              processed: totalFetched,
+              successful: created + updated,
+              failed,
+              metadata: {
+                estimatedSpeed: `${estimatedSpeed} products/sec`,
+                pages: pageCount,
+              },
             },
-          },
-        }).catch(() => {});
+          }).catch(() => {});
+        }
 
         // Check for next page
         hasMore = response.hasMore;
@@ -199,9 +201,9 @@ async function pullAllProductsBackground(jobId: string) {
           },
         });
 
-        // Rate limiting delay (EXTREME: Reduced to 30ms for maximum speed)
+        // Rate limiting delay (SAFE OPTIMIZED: Reduced to 10ms)
         if (hasMore) {
-          await new Promise(resolve => setTimeout(resolve, 30));
+          await new Promise(resolve => setTimeout(resolve, 10));
         }
 
       } catch (pageError: any) {
