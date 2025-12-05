@@ -128,7 +128,7 @@ const AppSidebar: React.FC = () => {
     navItems: NavItem[],
     menuType: "main" | "others"
   ) => (
-    <ul className="flex flex-col gap-2">
+    <ul className="flex flex-col gap-2 mb-6">
       {navItems.map((nav, index) => (
         <li key={nav.name}>
           {nav.subItems ? (
