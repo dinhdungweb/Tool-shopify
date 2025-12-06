@@ -54,7 +54,7 @@ class NhanhProductAPI {
       const appId = await this.getAppId();
       const businessId = await this.getBusinessId();
       const accessToken = await this.getAccessToken();
-      
+
       const url = `${endpoint}?appId=${appId}&businessId=${businessId}`;
 
       const response = await this.client.post(url, data, {
@@ -90,7 +90,7 @@ class NhanhProductAPI {
     const { page = 1, limit = 50, keyword, next } = params;
 
     const filters: any = {};
-    
+
     if (keyword) {
       filters.keyword = keyword;
     }
@@ -110,12 +110,12 @@ class NhanhProductAPI {
 
     const responseData = apiResponse.data || [];
     const responsePaginator = apiResponse.paginator || {};
-    
+
     console.log("Nhanh Product API Response:", {
       dataLength: Array.isArray(responseData) ? responseData.length : 0,
       hasNext: !!responsePaginator.next,
     });
-    
+
     // Transform response
     const products: NhanhProduct[] = (Array.isArray(responseData) ? responseData : []).map((p: any) => ({
       id: p.id?.toString() || "",
@@ -161,20 +161,20 @@ class NhanhProductAPI {
 
     let products = response.data || [];
     let product = products.find((p: any) => p.id?.toString() === productId);
-    
+
     // If not found, try fetching multiple pages until we find it
     if (!product) {
       console.log(`Product ${productId} not found in keyword search, fetching all products...`);
-      
+
       let nextCursor: any = undefined;
       let hasMore = true;
       let pageCount = 0;
       const maxPages = 10; // Limit to 10 pages (1000 products) to avoid infinite loop
-      
+
       while (!product && hasMore && pageCount < maxPages) {
         pageCount++;
         console.log(`Fetching page ${pageCount} to find product ${productId}...`);
-        
+
         response = await this.request<any>("/v3.0/product/list", {
           filters: {},
           paginator: {
@@ -182,26 +182,26 @@ class NhanhProductAPI {
             ...(nextCursor ? { next: nextCursor } : {}),
           },
         });
-        
+
         products = response.data || [];
         product = products.find((p: any) => p.id?.toString() === productId);
-        
+
         nextCursor = response.paginator?.next;
         hasMore = !!nextCursor;
-        
+
         // Small delay to avoid rate limiting
         if (!product && hasMore) {
           await new Promise(resolve => setTimeout(resolve, 300));
         }
       }
     }
-    
+
     if (!product) {
       throw new Error(`Product ${productId} not found in Nhanh.vn after searching ${10} pages. It may have been deleted or archived.`);
     }
 
     const p = product;
-    
+
     // Get quantity based on depot (warehouse) configuration
     let quantity = 0;
     if (this.storeId) {
@@ -257,15 +257,13 @@ class NhanhProductAPI {
   async getProductInventory(productId: string): Promise<{ quantity: number; price: number }> {
     const result = await this.getBatchProductInventory([productId]);
     const inventory = result.get(productId);
-    
+
+    // If product not found, it means inventory = 0 or empty on Nhanh
     if (!inventory) {
-      throw new Error(
-        `Product ${productId} not found in inventory. ` +
-        `This product may not exist on Nhanh.vn or has been deleted. ` +
-        `Please check the product on Nhanh.vn and update the mapping if needed.`
-      );
+      console.log(`[Nhanh API] Product ${productId} not found (inventory = 0 or empty), returning qty=0`);
+      return { quantity: 0, price: 0 };
     }
-    
+
     return inventory;
   }
 
@@ -283,26 +281,29 @@ class NhanhProductAPI {
     if (productIds.length > 100) {
       console.warn(`[Nhanh API] Batch size ${productIds.length} exceeds limit of 100, splitting...`);
       const results = new Map<string, { quantity: number; price: number }>();
-      
+
       for (let i = 0; i < productIds.length; i += 100) {
         const chunk = productIds.slice(i, i + 100);
         const chunkResults = await this.getBatchProductInventory(chunk);
         chunkResults.forEach((value, key) => results.set(key, value));
-        
+
         // Small delay between chunks
         if (i + 100 < productIds.length) {
           await new Promise(resolve => setTimeout(resolve, 300));
         }
       }
-      
+
       return results;
     }
 
     console.log(`[Nhanh API] Fetching batch inventory for ${productIds.length} products...`);
-    
+
+    // Convert to integers - Nhanh API expects integer array
+    const integerIds = productIds.map(id => parseInt(id));
+
     const response = await this.request<any>("/v3.0/product/inventory", {
       filters: {
-        ids: productIds,
+        ids: integerIds,
       },
     });
 
@@ -332,7 +333,127 @@ class NhanhProductAPI {
     }
 
     console.log(`[Nhanh API] Batch inventory fetched: ${results.size}/${productIds.length} products found`);
-    
+
+    return results;
+  }
+
+  /**
+   * Get product inventory by depot ID (for multi-location sync)
+   * Returns inventory for a specific depot/warehouse
+   */
+  async getProductInventoryByDepot(productId: string, depotId: string): Promise<{ quantity: number; price: number }> {
+    console.log(`[Nhanh API] Fetching inventory for product ${productId} from depot ${depotId}...`);
+
+    // Convert to integer - Nhanh API expects integer array
+    const response = await this.request<any>("/v3.0/product/inventory", {
+      filters: {
+        ids: [parseInt(productId)],
+      },
+    });
+
+    const products = response.data || [];
+    const product = products.find((p: any) => p.productId?.toString() === productId);
+
+    // If product not found, it means inventory = 0 or empty on Nhanh
+    if (!product) {
+      console.log(`[Nhanh API] Product ${productId} not in response (inventory = 0 or empty), returning qty=0`);
+      return { quantity: 0, price: 0 };
+    }
+
+    // Find the specific depot
+    const depots = product.inventory?.depots || [];
+    const targetDepot = depots.find((d: any) => d.id?.toString() === depotId);
+
+    let quantity = 0;
+    if (targetDepot) {
+      quantity = parseInt(targetDepot.available?.toString() || "0");
+      console.log(`[Nhanh API] Product ${productId} depot ${depotId}: ${quantity} available`);
+    } else {
+      // Depot not found, use total available as fallback
+      quantity = parseInt(product.inventory?.available?.toString() || "0");
+      console.warn(`[Nhanh API] Depot ${depotId} not found for product ${productId}, using total: ${quantity}`);
+    }
+
+    const price = parseFloat(product.prices?.price?.toString() || product.prices?.retail?.toString() || "0");
+    return { quantity, price };
+  }
+
+  /**
+   * Get inventory for multiple products by depot ID
+   * For bulk multi-location sync
+   */
+  async getBatchProductInventoryByDepot(
+    productIds: string[],
+    depotId: string
+  ): Promise<Map<string, { quantity: number; price: number }>> {
+    if (productIds.length === 0) {
+      return new Map();
+    }
+
+    // API supports max 100 IDs per request
+    if (productIds.length > 100) {
+      console.warn(`[Nhanh API] Batch size ${productIds.length} exceeds limit of 100, splitting...`);
+      const results = new Map<string, { quantity: number; price: number }>();
+
+      for (let i = 0; i < productIds.length; i += 100) {
+        const chunk = productIds.slice(i, i + 100);
+        const chunkResults = await this.getBatchProductInventoryByDepot(chunk, depotId);
+        chunkResults.forEach((value, key) => results.set(key, value));
+
+        if (i + 100 < productIds.length) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+
+      return results;
+    }
+
+    console.log(`[Nhanh API] Fetching batch inventory for ${productIds.length} products from depot ${depotId}...`);
+    // Convert to integers - Nhanh API expects integer array
+    const integerIds = productIds.map(id => parseInt(id));
+    console.log(`[Nhanh API] Requested product IDs (as integers): ${integerIds.join(', ')}`);
+
+    const response = await this.request<any>("/v3.0/product/inventory", {
+      filters: {
+        ids: integerIds,
+      },
+    });
+
+    const products = response.data || [];
+    const results = new Map<string, { quantity: number; price: number }>();
+
+    // Log returned product IDs
+    const returnedIds = products.map((p: any) => p.productId?.toString()).filter(Boolean);
+    console.log(`[Nhanh API] Returned product IDs: ${returnedIds.join(', ')}`);
+
+    // Find missing products
+    const missingIds = productIds.filter(id => !returnedIds.includes(id));
+    if (missingIds.length > 0) {
+      console.warn(`[Nhanh API] ⚠️ Missing products (not in API response): ${missingIds.join(', ')}`);
+    }
+
+    for (const product of products) {
+      const productId = product.productId?.toString();
+      if (!productId) continue;
+
+      const depots = product.inventory?.depots || [];
+      const targetDepot = depots.find((d: any) => d.id?.toString() === depotId);
+
+      let quantity = 0;
+      if (targetDepot) {
+        quantity = parseInt(targetDepot.available?.toString() || "0");
+      } else {
+        // Depot not found, use total available as fallback
+        quantity = parseInt(product.inventory?.available?.toString() || "0");
+        console.log(`[Nhanh API] Product ${productId}: depot ${depotId} not found in depots list, using total: ${quantity}`);
+      }
+
+      const price = parseFloat(product.prices?.price?.toString() || product.prices?.retail?.toString() || "0");
+      results.set(productId, { quantity, price });
+    }
+
+    console.log(`[Nhanh API] Batch inventory by depot ${depotId}: ${results.size}/${productIds.length} products found`);
+
     return results;
   }
 
@@ -350,7 +471,7 @@ class NhanhProductAPI {
     while (hasMore) {
       pageCount++;
       console.log(`Fetching page ${pageCount}...`);
-      
+
       const response = await this.getProducts({
         limit,
         next: nextCursor,
@@ -373,6 +494,22 @@ class NhanhProductAPI {
 
     console.log(`Finished fetching all products. Total: ${allProducts.length} products in ${pageCount} pages`);
     return allProducts;
+  }
+  /**
+   * Get list of depots (warehouses)
+   * Endpoint: /v3.0/business/depot
+   */
+  async getDepots(): Promise<Array<{ id: number; name: string }>> {
+    try {
+      const response = await this.request<any>("/v3.0/business/depot", {
+        filters: {}
+      });
+      return response.data || [];
+    } catch (error: any) {
+      console.error("Failed to fetch Nhanh depots:", error.message);
+      // Fallback: return empty list
+      return [];
+    }
   }
 }
 

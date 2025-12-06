@@ -424,3 +424,20 @@ enum ScheduleType {
   IMMEDIATE
   SCHEDULED
 }
+
+model LocationMapping {
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  nhanhDepotId      String
+  nhanhDepotName    String
+  
+  shopifyLocationId String
+  shopifyLocationName String
+  
+  active            Boolean  @default(true)
+  
+  @@unique([nhanhDepotId, shopifyLocationId])
+  @@map("location_mappings")
+}

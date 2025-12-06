@@ -47,7 +47,7 @@ class ShopifyProductAPI {
       console.log(`Fetching page ${pageCount} (since_id: ${sinceId})...`);
 
       const url = `/products.json?limit=250&status=active&since_id=${sinceId}`;
-      
+
       try {
         const response = await client.get(url);
         const products = response.data.products || [];
@@ -180,7 +180,7 @@ class ShopifyProductAPI {
         });
 
         console.log(`GraphQL Response status: ${response.status}`);
-        
+
         // Check for GraphQL errors
         if (response.data.errors) {
           console.error('GraphQL errors:', response.data.errors);
@@ -255,7 +255,7 @@ class ShopifyProductAPI {
   }): Promise<ShopifyProduct[]> {
     const client = await this.getClient();
     const { keyword, sku, barcode } = params;
-    
+
     let query = "";
     if (keyword) {
       query = `title:*${keyword}*`;
@@ -266,7 +266,7 @@ class ShopifyProductAPI {
     }
 
     const url = query ? `/products.json?limit=20&title=${encodeURIComponent(keyword || "")}` : `/products.json?limit=20`;
-    
+
     const response = await client.get(url);
     const products = response.data.products || [];
 
@@ -321,6 +321,20 @@ class ShopifyProductAPI {
   private locationId: string | null = null;
 
   /**
+   * Get all locations from Shopify
+   */
+  async getLocations(): Promise<Array<{ id: string; name: string }>> {
+    const client = await this.getClient();
+    const response = await client.get('/locations.json');
+    const locations = response.data.locations || [];
+
+    return locations.map((loc: any) => ({
+      id: loc.id.toString(),
+      name: loc.name,
+    }));
+  }
+
+  /**
    * Get primary location ID (cached)
    */
   private async getLocationId(): Promise<string> {
@@ -328,16 +342,14 @@ class ShopifyProductAPI {
       return this.locationId;
     }
 
-    const client = await this.getClient();
-    const response = await client.get('/locations.json');
-    const locations = response.data.locations || [];
-    
+    const locations = await this.getLocations();
+
     if (locations.length === 0) {
       throw new Error("No locations found in Shopify store");
     }
 
     // Use the first (primary) location
-    const locationId = locations[0].id.toString();
+    const locationId = locations[0].id;
     this.locationId = locationId;
     console.log(`[Shopify] Cached location ID: ${locationId}`);
     return locationId;
@@ -355,7 +367,7 @@ class ShopifyProductAPI {
     const client = await this.getClient();
     const response = await client.get(`/variants/${variantId}.json`);
     const inventoryItemId = response.data.variant?.inventory_item_id?.toString();
-    
+
     if (!inventoryItemId) {
       throw new Error(`Inventory item ID not found for variant ${variantId}`);
     }
@@ -369,15 +381,16 @@ class ShopifyProductAPI {
    * OPTIMIZED: Uses cached location ID and accepts optional inventoryItemId to skip API call
    */
   async updateVariantInventory(
-    variantId: string, 
+    variantId: string,
     quantity: number,
-    inventoryItemId?: string
+    inventoryItemId?: string,
+    locationId?: string
   ): Promise<{ inventoryItemId: string }> {
     const client = await this.getClient();
-    
-    // Get location ID (cached after first call)
-    const locationId = await this.getLocationId();
-    
+
+    // Get location ID: use provided or default to primary (cached)
+    const targetLocationId = locationId || await this.getLocationId();
+
     // Get inventory item ID (use provided, cache, or fetch)
     let itemId = inventoryItemId;
     if (!itemId) {
@@ -389,13 +402,13 @@ class ShopifyProductAPI {
 
     // Set inventory level (only 1 API call if inventoryItemId provided!)
     await client.post(`/inventory_levels/set.json`, {
-      location_id: locationId,
+      location_id: targetLocationId,
       inventory_item_id: itemId,
       available: quantity,
     });
 
     console.log(`✓ Updated inventory for variant ${variantId}: → ${quantity}`);
-    
+
     return { inventoryItemId: itemId };
   }
 
@@ -408,7 +421,7 @@ class ShopifyProductAPI {
   ): Promise<{ successful: number; failed: number; errors: string[] }> {
     const client = await this.getClient();
     const results = { successful: 0, failed: 0, errors: [] as string[] };
-    
+
     // Get location ID first (1 API call, cached)
     const locationId = await this.getLocationId();
 
@@ -419,16 +432,16 @@ class ShopifyProductAPI {
 
     if (uncachedVariantIds.length > 0) {
       console.log(`[Shopify] Pre-fetching ${uncachedVariantIds.length} inventory item IDs...`);
-      
+
       // Fetch in batches of 50 with delay
       for (let i = 0; i < uncachedVariantIds.length; i += 50) {
         const batch = uncachedVariantIds.slice(i, i + 50);
         const ids = batch.join(',');
-        
+
         try {
           const response = await client.get(`/variants.json?ids=${ids}`);
           const variants = response.data.variants || [];
-          
+
           for (const variant of variants) {
             if (variant.id && variant.inventory_item_id) {
               this.inventoryItemCache.set(variant.id.toString(), variant.inventory_item_id.toString());
@@ -449,7 +462,7 @@ class ShopifyProductAPI {
     for (const update of updates) {
       try {
         const inventoryItemId = this.inventoryItemCache.get(update.variantId);
-        
+
         if (!inventoryItemId) {
           // Fallback: fetch individually
           const inventoryItemIdFetched = await this.getInventoryItemId(update.variantId);
@@ -465,7 +478,7 @@ class ShopifyProductAPI {
             available: update.quantity,
           });
         }
-        
+
         results.successful++;
       } catch (error: any) {
         results.failed++;

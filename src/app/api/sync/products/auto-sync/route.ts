@@ -78,13 +78,13 @@ async function productAutoSyncInBackground(jobId: string, limit?: number) {
       data: {
         total: mappings.length,
       },
-    }).catch(() => {});
+    }).catch(() => { });
 
     // Sync mappings in parallel batches for better performance
     // Conservative settings to avoid rate limiting from Nhanh/Shopify APIs
     const BATCH_SIZE = 5; // Process 5 products at a time (safe for rate limits)
     const BATCH_DELAY = 2000; // 2 second delay between batches (safe buffer)
-    
+
     // Rate limit safety:
     // - Nhanh API: ~40 requests/minute limit
     // - Shopify API: 2 requests/second per store
@@ -92,21 +92,21 @@ async function productAutoSyncInBackground(jobId: string, limit?: number) {
     // - Each product = 1 Nhanh call + 1 Shopify call = 2 API calls
     // - 5 products/batch × 2 calls = 10 API calls per batch
     // - With 2s delay: 30 batches/minute = 150 products/minute (safe)
-    
+
     for (let i = 0; i < mappings.length; i += BATCH_SIZE) {
       const batch = mappings.slice(i, i + BATCH_SIZE);
       const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
       const totalBatches = Math.ceil(mappings.length / BATCH_SIZE);
-      
+
       console.log(`Processing batch ${batchNumber}/${totalBatches} (${batch.length} products)...`);
-      
+
       // Process batch in parallel
       const batchPromises = batch.map(async (mapping) => {
         try {
           console.log(`  Syncing: ${mapping.nhanhProductName}`);
 
           const response = await fetch(
-            `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/sync/products/sync-product`,
+            `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/sync/sync-product`,
             {
               method: 'POST',
               headers: {
@@ -141,7 +141,7 @@ async function productAutoSyncInBackground(jobId: string, limit?: number) {
 
       // Wait for all in batch to complete
       const batchResults = await Promise.all(batchPromises);
-      
+
       // Aggregate results
       batchResults.forEach((result) => {
         if (result.success) {
@@ -155,7 +155,7 @@ async function productAutoSyncInBackground(jobId: string, limit?: number) {
           });
         }
       });
-      
+
       console.log(`Batch ${batchNumber}/${totalBatches} completed: ${batchResults.filter(r => r.success).length} successful, ${batchResults.filter(r => !r.success).length} failed`);
 
       // Update job progress
@@ -171,7 +171,7 @@ async function productAutoSyncInBackground(jobId: string, limit?: number) {
             totalBatches,
           },
         },
-      }).catch(() => {});
+      }).catch(() => { });
 
       // Delay between batches to avoid rate limiting
       if (i + BATCH_SIZE < mappings.length) {
@@ -196,10 +196,10 @@ async function productAutoSyncInBackground(jobId: string, limit?: number) {
           results,
         },
       },
-    }).catch(() => {});
+    }).catch(() => { });
   } catch (error: any) {
     console.error('Error in product auto sync:', error);
-    
+
     // Mark job as failed
     await prisma.backgroundJob.update({
       where: { id: jobId },
@@ -208,7 +208,7 @@ async function productAutoSyncInBackground(jobId: string, limit?: number) {
         error: error.message,
         completedAt: new Date(),
       },
-    }).catch(() => {});
+    }).catch(() => { });
   }
 }
 

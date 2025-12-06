@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/components/ui/toast/ToastContainer";
 import PageBreadcrumb from "@/components/common/PageBreadCrumb";
 import Button from "@/components/ui/button/Button";
 import Input from "@/components/form/input/InputField";
 import Badge from "@/components/ui/badge/Badge";
+import LocationMappingTable, { LocationMappingTableRef } from "@/components/settings/LocationMappingTable";
 
 export default function SettingsPage() {
   const { showToast } = useToast();
@@ -43,6 +44,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [testingNhanh, setTestingNhanh] = useState(false);
   const [testingShopify, setTestingShopify] = useState(false);
+  const locationMappingRef = useRef<LocationMappingTableRef>(null);
 
   useEffect(() => {
     loadSettings();
@@ -52,7 +54,7 @@ export default function SettingsPage() {
     try {
       const response = await fetch("/api/settings");
       const result = await response.json();
-      
+
       if (result.success) {
         setSettings(result.data);
         setEditedSettings({
@@ -81,7 +83,7 @@ export default function SettingsPage() {
 
       // Only send non-empty values
       const payload: any = {};
-      
+
       if (editedSettings.shopify.storeUrl || editedSettings.shopify.accessToken) {
         payload.shopify = {};
         if (editedSettings.shopify.storeUrl) {
@@ -151,7 +153,7 @@ export default function SettingsPage() {
       setTestingNhanh(true);
       const response = await fetch("/api/settings/test-nhanh");
       const result = await response.json();
-      
+
       if (result.success) {
         showToast("Nhanh.vn connection successful!", "success");
       } else {
@@ -169,7 +171,7 @@ export default function SettingsPage() {
       setTestingShopify(true);
       const response = await fetch("/api/settings/test-shopify");
       const result = await response.json();
-      
+
       if (result.success) {
         showToast("Shopify connection successful!", "success");
       } else {
@@ -198,7 +200,7 @@ export default function SettingsPage() {
   return (
     <>
       <PageBreadcrumb pageTitle="API Settings" />
-      
+
       <div className="space-y-6">
         {/* Header Actions */}
         <div className="flex items-center justify-between">
@@ -251,178 +253,210 @@ export default function SettingsPage() {
         </div>
 
         {/* Nhanh.vn Settings */}
-      <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-        <div className="border-b border-gray-200 p-6 dark:border-gray-800">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Nhanh.vn API
-              </h2>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                Configuration for Nhanh.vn POS system
-              </p>
+        <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+          <div className="border-b border-gray-200 p-6 dark:border-gray-800">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Nhanh.vn API
+                </h2>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                  Configuration for Nhanh.vn POS system
+                </p>
+              </div>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={testNhanhConnection}
+                disabled={testingNhanh}
+                startIcon={
+                  testingNhanh ? (
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                  ) : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )
+                }
+              >
+                {testingNhanh ? "Testing..." : "Test Connection"}
+              </Button>
             </div>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={testNhanhConnection}
-              disabled={testingNhanh}
-              startIcon={
-                testingNhanh ? (
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-                ) : (
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                )
-              }
-            >
-              {testingNhanh ? "Testing..." : "Test Connection"}
-            </Button>
+          </div>
+
+          <div className="p-6 space-y-4">
+            {editMode ? (
+              <>
+                <EditableField
+                  label="API URL"
+                  value={editedSettings.nhanh.apiUrl}
+                  onChange={(value) => setEditedSettings({
+                    ...editedSettings,
+                    nhanh: { ...editedSettings.nhanh, apiUrl: value }
+                  })}
+                  placeholder="https://pos.open.nhanh.vn"
+                />
+                <EditableField
+                  label="App ID"
+                  value={editedSettings.nhanh.appId}
+                  onChange={(value) => setEditedSettings({
+                    ...editedSettings,
+                    nhanh: { ...editedSettings.nhanh, appId: value }
+                  })}
+                  placeholder="Your Nhanh app ID"
+                />
+                <EditableField
+                  label="Business ID"
+                  value={editedSettings.nhanh.businessId}
+                  onChange={(value) => setEditedSettings({
+                    ...editedSettings,
+                    nhanh: { ...editedSettings.nhanh, businessId: value }
+                  })}
+                  placeholder="Your Nhanh business ID"
+                />
+                <EditableField
+                  label="Access Token"
+                  value={editedSettings.nhanh.accessToken}
+                  onChange={(value) => setEditedSettings({
+                    ...editedSettings,
+                    nhanh: { ...editedSettings.nhanh, accessToken: value }
+                  })}
+                  placeholder="Enter new access token (leave empty to keep current)"
+                  masked
+                />
+              </>
+            ) : (
+              <>
+                <SettingField
+                  label="API URL"
+                  value={settings.nhanh.apiUrl}
+                  onCopy={() => copyToClipboard(settings.nhanh.apiUrl)}
+                />
+                <SettingField
+                  label="App ID"
+                  value={settings.nhanh.appId}
+                  onCopy={() => copyToClipboard(settings.nhanh.appId)}
+                />
+                <SettingField
+                  label="Business ID"
+                  value={settings.nhanh.businessId}
+                  onCopy={() => copyToClipboard(settings.nhanh.businessId)}
+                />
+                <SettingField
+                  label="Access Token"
+                  value={settings.nhanh.accessToken}
+                  masked
+                  onCopy={() => copyToClipboard(settings.nhanh.accessToken)}
+                />
+              </>
+            )}
           </div>
         </div>
 
-        <div className="p-6 space-y-4">
-          {editMode ? (
-            <>
-              <EditableField
-                label="API URL"
-                value={editedSettings.nhanh.apiUrl}
-                onChange={(value) => setEditedSettings({
-                  ...editedSettings,
-                  nhanh: { ...editedSettings.nhanh, apiUrl: value }
-                })}
-                placeholder="https://pos.open.nhanh.vn"
-              />
-              <EditableField
-                label="App ID"
-                value={editedSettings.nhanh.appId}
-                onChange={(value) => setEditedSettings({
-                  ...editedSettings,
-                  nhanh: { ...editedSettings.nhanh, appId: value }
-                })}
-                placeholder="Your Nhanh app ID"
-              />
-              <EditableField
-                label="Business ID"
-                value={editedSettings.nhanh.businessId}
-                onChange={(value) => setEditedSettings({
-                  ...editedSettings,
-                  nhanh: { ...editedSettings.nhanh, businessId: value }
-                })}
-                placeholder="Your Nhanh business ID"
-              />
-              <EditableField
-                label="Access Token"
-                value={editedSettings.nhanh.accessToken}
-                onChange={(value) => setEditedSettings({
-                  ...editedSettings,
-                  nhanh: { ...editedSettings.nhanh, accessToken: value }
-                })}
-                placeholder="Enter new access token (leave empty to keep current)"
-                masked
-              />
-            </>
-          ) : (
-            <>
-              <SettingField
-                label="API URL"
-                value={settings.nhanh.apiUrl}
-                onCopy={() => copyToClipboard(settings.nhanh.apiUrl)}
-              />
-              <SettingField
-                label="App ID"
-                value={settings.nhanh.appId}
-                onCopy={() => copyToClipboard(settings.nhanh.appId)}
-              />
-              <SettingField
-                label="Business ID"
-                value={settings.nhanh.businessId}
-                onCopy={() => copyToClipboard(settings.nhanh.businessId)}
-              />
-              <SettingField
-                label="Access Token"
-                value={settings.nhanh.accessToken}
-                masked
-                onCopy={() => copyToClipboard(settings.nhanh.accessToken)}
-              />
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Shopify Settings */}
-      <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-        <div className="border-b border-gray-200 p-6 dark:border-gray-800">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Shopify API
-              </h2>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                Configuration for Shopify store
-              </p>
+        {/* Shopify Settings */}
+        <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+          <div className="border-b border-gray-200 p-6 dark:border-gray-800">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Shopify API
+                </h2>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                  Configuration for Shopify store
+                </p>
+              </div>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={testShopifyConnection}
+                disabled={testingShopify}
+                startIcon={
+                  testingShopify ? (
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                  ) : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )
+                }
+              >
+                {testingShopify ? "Testing..." : "Test Connection"}
+              </Button>
             </div>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={testShopifyConnection}
-              disabled={testingShopify}
-              startIcon={
-                testingShopify ? (
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-                ) : (
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                )
-              }
-            >
-              {testingShopify ? "Testing..." : "Test Connection"}
-            </Button>
+          </div>
+
+          <div className="p-6 space-y-4">
+            {editMode ? (
+              <>
+                <EditableField
+                  label="Store URL"
+                  value={editedSettings.shopify.storeUrl}
+                  onChange={(value) => setEditedSettings({
+                    ...editedSettings,
+                    shopify: { ...editedSettings.shopify, storeUrl: value }
+                  })}
+                  placeholder="your-store.myshopify.com"
+                />
+                <EditableField
+                  label="Access Token"
+                  value={editedSettings.shopify.accessToken}
+                  onChange={(value) => setEditedSettings({
+                    ...editedSettings,
+                    shopify: { ...editedSettings.shopify, accessToken: value }
+                  })}
+                  placeholder="Enter new access token (leave empty to keep current)"
+                  masked
+                />
+              </>
+            ) : (
+              <>
+                <SettingField
+                  label="Store URL"
+                  value={settings.shopify.storeUrl}
+                  onCopy={() => copyToClipboard(settings.shopify.storeUrl)}
+                />
+                <SettingField
+                  label="Access Token"
+                  value={settings.shopify.accessToken}
+                  masked
+                  onCopy={() => copyToClipboard(settings.shopify.accessToken)}
+                />
+              </>
+            )}
           </div>
         </div>
 
-        <div className="p-6 space-y-4">
-          {editMode ? (
-            <>
-              <EditableField
-                label="Store URL"
-                value={editedSettings.shopify.storeUrl}
-                onChange={(value) => setEditedSettings({
-                  ...editedSettings,
-                  shopify: { ...editedSettings.shopify, storeUrl: value }
-                })}
-                placeholder="your-store.myshopify.com"
-              />
-              <EditableField
-                label="Access Token"
-                value={editedSettings.shopify.accessToken}
-                onChange={(value) => setEditedSettings({
-                  ...editedSettings,
-                  shopify: { ...editedSettings.shopify, accessToken: value }
-                })}
-                placeholder="Enter new access token (leave empty to keep current)"
-                masked
-              />
-            </>
-          ) : (
-            <>
-              <SettingField
-                label="Store URL"
-                value={settings.shopify.storeUrl}
-                onCopy={() => copyToClipboard(settings.shopify.storeUrl)}
-              />
-              <SettingField
-                label="Access Token"
-                value={settings.shopify.accessToken}
-                masked
-                onCopy={() => copyToClipboard(settings.shopify.accessToken)}
-              />
-            </>
-          )}
+        {/* Location Mapping Settings */}
+        <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+          <div className="border-b border-gray-200 p-6 dark:border-gray-800">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Multi-Location Inventory
+                </h2>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                  Map Nhanh.vn depots to Shopify locations for precise inventory syncing
+                </p>
+              </div>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => locationMappingRef.current?.openModal()}
+                startIcon={
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                }
+              >
+                Add Mapping
+              </Button>
+            </div>
+          </div>
+          <div className="p-6">
+            <LocationMappingTable ref={locationMappingRef} />
+          </div>
         </div>
-      </div>
+
       </div>
     </>
   );

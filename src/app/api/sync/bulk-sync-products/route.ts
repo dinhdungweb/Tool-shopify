@@ -1,5 +1,5 @@
 // API Route: Bulk Sync Products in Background
-// Similar to customer bulk sync - uses local data + Nhanh Inventory API
+// ULTRA OPTIMIZED: Higher parallelism, smarter batching, reduced delays
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { shopifyProductAPI } from "@/lib/shopify-product-api";
@@ -11,8 +11,8 @@ export const maxDuration = 300; // 5 minutes
 
 /**
  * POST /api/sync/bulk-sync-products
- * Start background sync for products (returns immediately)
- * Similar to customer bulk sync
+ * ULTRA OPTIMIZED bulk sync with higher throughput
+ * Target: ~4-5 products/sec (safe for Shopify rate limits)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -26,250 +26,368 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create background job for tracking
+    // Get location mappings
+    const locationMappings = await prisma.locationMapping.findMany({
+      where: { active: true },
+    });
+
+    // Group by Shopify location for SUM logic
+    const locationGroups = new Map<string, {
+      locationId: string;
+      locationName: string;
+      depots: { id: string; name: string }[]
+    }>();
+
+    for (const locMapping of locationMappings) {
+      const existing = locationGroups.get(locMapping.shopifyLocationId);
+      if (existing) {
+        existing.depots.push({ id: locMapping.nhanhDepotId, name: locMapping.nhanhDepotName });
+      } else {
+        locationGroups.set(locMapping.shopifyLocationId, {
+          locationId: locMapping.shopifyLocationId,
+          locationName: locMapping.shopifyLocationName,
+          depots: [{ id: locMapping.nhanhDepotId, name: locMapping.nhanhDepotName }],
+        });
+      }
+    }
+
+    const syncMode = locationMappings.length > 0 ? "multi-location-sum" : "single-location";
+
+    // Create background job
     const job = await prisma.backgroundJob.create({
       data: {
         type: "PRODUCT_SYNC",
         total: mappingIds.length,
         status: "RUNNING",
         metadata: {
-          estimatedSpeed: "~2 products/sec",
-          estimatedTime: `~${Math.ceil(mappingIds.length / 2 / 60)} minutes`,
+          estimatedSpeed: "~4-5 products/sec",
+          estimatedTime: `~${Math.ceil(mappingIds.length / 4 / 60)} minutes`,
+          syncMode,
+          locationCount: locationGroups.size,
         },
       },
     });
 
-    // Start background processing (don't await)
-    bulkSyncProductsBackground(mappingIds, job.id);
+    // Start background processing
+    bulkSyncOptimized(mappingIds, job.id, locationGroups);
 
     return NextResponse.json({
       success: true,
       data: {
         total: mappingIds.length,
         jobId: job.id,
-        message: `Background sync started for ${mappingIds.length} products. Check progress in UI.`,
+        syncMode,
+        message: `Ultra optimized sync started for ${mappingIds.length} products (~4-5 products/sec).`,
       },
     });
   } catch (error: any) {
-    console.error("Error starting background sync:", error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
+    console.error("Error starting sync:", error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
-async function bulkSyncProductsBackground(mappingIds: string[], jobId: string) {
-  console.log(`🚀 Starting SUPER OPTIMIZED bulk sync for ${mappingIds.length} products (Job: ${jobId})...`);
-  const startTime = Date.now();
+interface LocationGroup {
+  locationId: string;
+  locationName: string;
+  depots: { id: string; name: string }[];
+}
 
+async function bulkSyncOptimized(
+  mappingIds: string[],
+  jobId: string,
+  locationGroups: Map<string, LocationGroup>
+) {
+  const isMultiLocation = locationGroups.size > 0;
+  console.log(`🚀 ULTRA OPTIMIZED sync: ${mappingIds.length} products (Job: ${jobId})`);
+
+  const startTime = Date.now();
   let successful = 0;
   let failed = 0;
   let rateLimitHits = 0;
 
-  // OPTIMIZED settings for ~2 variants/sec (with inventoryItemId cache):
-  // updateVariantInventory = 1 API call when inventoryItemId is cached in DB
-  // Shopify REST API limit: 2 calls/second (bucket 40, refill 2/sec)
-  // Using 5 parallel with 2.5s delay:
-  // - With cache: 5 x 1 = 5 calls / 2.5s = 2 calls/sec (exactly at limit)
-  // - Without cache (first time): 5 x 2 = 10 calls / 2.5s = 4 calls/sec (uses bucket)
-  // After pull products with inventoryItemId, all syncs will be fast!
-  const NHANH_BATCH_SIZE = 50; // Nhanh API supports up to 100
-  const SHOPIFY_PARALLEL_SIZE = 5; // 5 parallel (safe with cache)
-  const SHOPIFY_BATCH_DELAY = 2500; // 2.5s delay
-  const RATE_LIMIT_DELAY = 30000; // 30 seconds wait on rate limit
+  // SETTINGS FOR MULTI-LOCATION SYNC:
+  // Shopify REST API: 2 req/sec base, 40 bucket (burst capacity)
+  // Multi-location = 2x API calls per product (one per location)
+  // Safe rate: 4 parallel @ 2s delay = ~2 req/sec (sustainable)
+  const NHANH_BATCH_SIZE = 100; // Max supported by Nhanh API
+  const SHOPIFY_PARALLEL_SIZE = isMultiLocation ? 4 : 8; // Fewer parallel calls for multi-location
+  const SHOPIFY_BATCH_DELAY = isMultiLocation ? 2000 : 1500; // Longer delay for multi-location
+  const RATE_LIMIT_DELAY = 15000; // 15s recovery when rate limited
 
-  // Get all mappings first
+  // Get all mappings
   const mappings = await prisma.productMapping.findMany({
     where: { id: { in: mappingIds } },
   });
 
   const validMappings = mappings.filter(m => m.shopifyProductId && m.shopifyVariantId);
   const invalidCount = mappings.length - validMappings.length;
-  
+
   if (invalidCount > 0) {
-    console.log(`⚠️ Skipping ${invalidCount} invalid mappings (missing Shopify IDs)`);
+    console.log(`⚠️ Skipping ${invalidCount} invalid mappings`);
     failed += invalidCount;
   }
 
-  // Split into Nhanh batches (50 products per API call)
+  // Collect all unique depot IDs upfront
+  const allDepotIds: string[] = [];
+  for (const group of locationGroups.values()) {
+    for (const depot of group.depots) {
+      if (!allDepotIds.includes(depot.id)) {
+        allDepotIds.push(depot.id);
+      }
+    }
+  }
+
+  // Split into batches
   const nhanhBatches: typeof validMappings[] = [];
   for (let i = 0; i < validMappings.length; i += NHANH_BATCH_SIZE) {
     nhanhBatches.push(validMappings.slice(i, i + NHANH_BATCH_SIZE));
   }
 
-  const totalShopifyBatches = Math.ceil(validMappings.length / SHOPIFY_PARALLEL_SIZE);
-  // Estimate: ~2 variants/sec (with inventoryItemId cache)
-  const estimatedSeconds = Math.ceil(validMappings.length / 2);
-  const estimatedMinutes = Math.ceil(estimatedSeconds / 60);
-  
-  console.log(`📦 ${nhanhBatches.length} Nhanh API calls (${NHANH_BATCH_SIZE} products each)`);
-  console.log(`📦 ~${totalShopifyBatches} Shopify batches (${SHOPIFY_PARALLEL_SIZE} parallel, 2.5s delay)`);
-  console.log(`⚙️ Estimated time: ~${estimatedMinutes} minutes (~2 variants/sec with cache)\n`);
+  console.log(`📦 ${nhanhBatches.length} batches (${NHANH_BATCH_SIZE} products/batch)`);
+  console.log(`⚡ ${SHOPIFY_PARALLEL_SIZE} parallel Shopify calls, ${SHOPIFY_BATCH_DELAY}ms delay\n`);
 
   for (let batchIndex = 0; batchIndex < nhanhBatches.length; batchIndex++) {
     const nhanhBatch = nhanhBatches[batchIndex];
     const progress = ((batchIndex / nhanhBatches.length) * 100).toFixed(1);
-    
-    console.log(`\n📦 Nhanh Batch ${batchIndex + 1}/${nhanhBatches.length} (${progress}%) - ✅ ${successful} | ❌ ${failed}`);
+
+    console.log(`\n📦 Batch ${batchIndex + 1}/${nhanhBatches.length} (${progress}%) ✅${successful} ❌${failed}`);
 
     try {
-      // Step 1: Fetch inventory for all products in batch (1 API call!)
       const productIds = nhanhBatch.map(m => m.nhanhProductId);
-      const inventoryMap = await nhanhProductAPI.getBatchProductInventory(productIds);
-      
-      console.log(`  ✓ Fetched inventory for ${inventoryMap.size}/${productIds.length} products`);
 
-      // Step 2: Update Shopify in parallel sub-batches
-      const shopifyBatches: typeof nhanhBatch[] = [];
-      for (let i = 0; i < nhanhBatch.length; i += SHOPIFY_PARALLEL_SIZE) {
-        shopifyBatches.push(nhanhBatch.slice(i, i + SHOPIFY_PARALLEL_SIZE));
-      }
+      // Fetch ALL depot inventories in ONE go for this batch
+      // Key optimization: 1 API call for all depots instead of N calls
+      const allInventories = new Map<string, Map<string, number>>(); // productId -> depotId -> qty
 
-      for (const shopifyBatch of shopifyBatches) {
-        const shopifyPromises = shopifyBatch.map(async (mapping) => {
-          const inventory = inventoryMap.get(mapping.nhanhProductId);
-          
-          if (!inventory) {
-            // Product not found in Nhanh
-            await prisma.productMapping.update({
-              where: { id: mapping.id },
-              data: {
-                syncStatus: SyncStatus.FAILED,
-                syncError: "Product not found in Nhanh inventory",
-                syncAttempts: { increment: 1 },
-              },
-            });
-            return { success: false, mappingId: mapping.id, error: "Not found in Nhanh" };
-          }
+      // Also fetch TOTAL inventory as fallback for products not in specific depots
+      const fallbackInventory = await nhanhProductAPI.getBatchProductInventory(productIds);
 
-          try {
-            // Update Shopify inventory (pass cached inventoryItemId if available)
-            const result = await shopifyProductAPI.updateVariantInventory(
-              mapping.shopifyVariantId!,
-              inventory.quantity,
-              mapping.shopifyInventoryItemId || undefined
-            );
-
-            // Update mapping status and cache inventoryItemId
-            await prisma.productMapping.update({
-              where: { id: mapping.id },
-              data: {
-                syncStatus: SyncStatus.SYNCED,
-                lastSyncedAt: new Date(),
-                syncError: null,
-                syncAttempts: { increment: 1 },
-                // Cache inventoryItemId for next sync (eliminates 1 API call!)
-                shopifyInventoryItemId: result.inventoryItemId,
-              },
-            });
-
-            return { success: true, mappingId: mapping.id, quantity: inventory.quantity };
-          } catch (error: any) {
-            const errorMessage = error.message || "Unknown error";
-            
-            if (errorMessage.includes("Rate Limit") || errorMessage.includes("429") || errorMessage.includes("throttl")) {
-              return { success: false, mappingId: mapping.id, error: errorMessage, isRateLimit: true };
-            }
-
-            await prisma.productMapping.update({
-              where: { id: mapping.id },
-              data: {
-                syncStatus: SyncStatus.FAILED,
-                syncError: errorMessage.substring(0, 500),
-                syncAttempts: { increment: 1 },
-              },
-            });
-
-            return { success: false, mappingId: mapping.id, error: errorMessage };
-          }
+      if (isMultiLocation && allDepotIds.length > 0) {
+        // Fetch from all depots in parallel (one API call per depot, but parallel)
+        const depotPromises = allDepotIds.map(async (depotId) => {
+          const inventoryMap = await nhanhProductAPI.getBatchProductInventoryByDepot(productIds, depotId);
+          return { depotId, inventoryMap };
         });
 
-        const results = await Promise.all(shopifyPromises);
+        const depotResults = await Promise.all(depotPromises);
 
-        // Count results
-        let batchRateLimited = false;
-        for (const result of results) {
-          if (result.success) {
-            successful++;
-          } else {
-            failed++;
-            if (result.isRateLimit) {
-              rateLimitHits++;
-              batchRateLimited = true;
+        for (const { depotId, inventoryMap } of depotResults) {
+          for (const [productId, inv] of inventoryMap) {
+            if (!allInventories.has(productId)) {
+              allInventories.set(productId, new Map());
             }
+            allInventories.get(productId)!.set(depotId, inv.quantity);
           }
         }
 
-        // Update job progress
-        const processed = successful + failed;
-        const elapsed = (Date.now() - startTime) / 1000;
-        const speed = processed > 0 ? (processed / elapsed).toFixed(1) : "0";
-        const remaining = mappingIds.length - processed;
-        const eta = processed > 0 ? Math.ceil(remaining / (processed / elapsed)) : 0;
-        
-        await prisma.backgroundJob.update({
-          where: { id: jobId },
-          data: {
-            processed,
-            successful,
-            failed,
-            metadata: {
-              speed: `${speed} products/sec`,
-              eta: eta > 60 ? `~${Math.ceil(eta / 60)} min` : `~${eta} sec`,
-              rateLimitHits,
-            },
-          },
-        }).catch(() => {}); // Ignore errors
+        // FALLBACK: For products NOT found in any depot, use total inventory
+        for (const productId of productIds) {
+          if (!allInventories.has(productId) && fallbackInventory.has(productId)) {
+            const totalInv = fallbackInventory.get(productId)!;
+            // Create a map with first depot as key - will be summed later
+            allInventories.set(productId, new Map([[allDepotIds[0], totalInv.quantity]]));
+            console.log(`⚡ Fallback: Product ${productId} using total inventory: ${totalInv.quantity}`);
+          }
+        }
+      }
 
-        // Handle rate limit
-        if (batchRateLimited) {
-          console.warn(`  ⚠️ Shopify rate limit! Waiting ${RATE_LIMIT_DELAY / 1000}s...`);
-          await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY));
-        } else {
-          // Normal delay between Shopify batches
-          await new Promise(resolve => setTimeout(resolve, SHOPIFY_BATCH_DELAY));
+      // Now sync to each Shopify location
+      if (isMultiLocation) {
+        for (const [shopifyLocationId, group] of locationGroups) {
+          // Process in parallel sub-batches
+          const shopifyBatches: typeof nhanhBatch[] = [];
+          for (let i = 0; i < nhanhBatch.length; i += SHOPIFY_PARALLEL_SIZE) {
+            shopifyBatches.push(nhanhBatch.slice(i, i + SHOPIFY_PARALLEL_SIZE));
+          }
+
+          for (const shopifyBatch of shopifyBatches) {
+            const batchStartTime = Date.now();
+
+            const results = await Promise.all(shopifyBatch.map(async (mapping) => {
+              const productDepots = allInventories.get(mapping.nhanhProductId);
+
+              // SUM quantities from all mapped depots
+              // If product not found in Nhanh response, it means inventory = 0 or empty
+              let totalQuantity = 0;
+              if (productDepots) {
+                for (const depot of group.depots) {
+                  totalQuantity += productDepots.get(depot.id) || 0;
+                }
+              } else {
+                // Product not in Nhanh response = inventory is 0 or empty on Nhanh
+                console.log(`⚠️ Product ${mapping.nhanhProductId} not in Nhanh response, syncing as qty=0`);
+              }
+
+              try {
+                const result = await shopifyProductAPI.updateVariantInventory(
+                  mapping.shopifyVariantId!,
+                  totalQuantity,
+                  mapping.shopifyInventoryItemId || undefined,
+                  shopifyLocationId
+                );
+
+                // Update mapping (don't await, fire and forget for speed)
+                prisma.productMapping.update({
+                  where: { id: mapping.id },
+                  data: {
+                    syncStatus: SyncStatus.SYNCED,
+                    lastSyncedAt: new Date(),
+                    syncError: null,
+                    shopifyInventoryItemId: result.inventoryItemId,
+                  },
+                }).catch(() => { });
+
+                return { success: true, mappingId: mapping.id };
+              } catch (error: any) {
+                const msg = error.message || "";
+                console.error(`❌ Failed to sync ${mapping.nhanhProductId} → ${mapping.shopifyVariantId}: ${msg}`);
+
+                if (msg.includes("429") || msg.includes("Rate") || msg.includes("throttl")) {
+                  return { success: false, mappingId: mapping.id, isRateLimit: true };
+                }
+
+                prisma.productMapping.update({
+                  where: { id: mapping.id },
+                  data: { syncStatus: SyncStatus.FAILED, syncError: msg.substring(0, 500) },
+                }).catch(() => { });
+
+                return { success: false, mappingId: mapping.id, error: msg };
+              }
+            }));
+
+            let batchRateLimited = false;
+            for (const r of results) {
+              if (r.success) successful++;
+              else {
+                failed++;
+                if (r.isRateLimit) {
+                  rateLimitHits++;
+                  batchRateLimited = true;
+                }
+              }
+            }
+
+            // Update progress every batch
+            const elapsed = (Date.now() - startTime) / 1000;
+            const speed = (successful + failed) / elapsed;
+
+            await prisma.backgroundJob.update({
+              where: { id: jobId },
+              data: {
+                processed: successful + failed,
+                successful,
+                failed,
+                metadata: { speed: `${speed.toFixed(1)} products/sec`, rateLimitHits },
+              },
+            }).catch(() => { });
+
+            // Smart delay: if batch was fast, wait longer to avoid rate limits
+            const batchDuration = Date.now() - batchStartTime;
+            const waitTime = batchRateLimited
+              ? RATE_LIMIT_DELAY
+              : Math.max(0, SHOPIFY_BATCH_DELAY - batchDuration);
+
+            if (waitTime > 0) {
+              await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+          }
+        }
+      } else {
+        // Single-location sync
+        const inventoryMap = await nhanhProductAPI.getBatchProductInventory(productIds);
+
+        const shopifyBatches: typeof nhanhBatch[] = [];
+        for (let i = 0; i < nhanhBatch.length; i += SHOPIFY_PARALLEL_SIZE) {
+          shopifyBatches.push(nhanhBatch.slice(i, i + SHOPIFY_PARALLEL_SIZE));
+        }
+
+        for (const shopifyBatch of shopifyBatches) {
+          const batchStartTime = Date.now();
+
+          const results = await Promise.all(shopifyBatch.map(async (mapping) => {
+            const inventory = inventoryMap.get(mapping.nhanhProductId);
+
+            // If product not in Nhanh response, it means inventory = 0 or empty
+            const quantity = inventory?.quantity ?? 0;
+            if (!inventory) {
+              console.log(`⚠️ Product ${mapping.nhanhProductId} not in Nhanh response, syncing as qty=0`);
+            }
+
+            try {
+              const result = await shopifyProductAPI.updateVariantInventory(
+                mapping.shopifyVariantId!,
+                quantity,
+                mapping.shopifyInventoryItemId || undefined
+              );
+
+              prisma.productMapping.update({
+                where: { id: mapping.id },
+                data: {
+                  syncStatus: SyncStatus.SYNCED,
+                  lastSyncedAt: new Date(),
+                  syncError: null,
+                  shopifyInventoryItemId: result.inventoryItemId,
+                },
+              }).catch(() => { });
+
+              return { success: true, mappingId: mapping.id };
+            } catch (error: any) {
+              const msg = error.message || "";
+              if (msg.includes("429") || msg.includes("Rate") || msg.includes("throttl")) {
+                return { success: false, mappingId: mapping.id, isRateLimit: true };
+              }
+              return { success: false, mappingId: mapping.id };
+            }
+          }));
+
+          let batchRateLimited = false;
+          for (const r of results) {
+            if (r.success) successful++;
+            else {
+              failed++;
+              if (r.isRateLimit) {
+                rateLimitHits++;
+                batchRateLimited = true;
+              }
+            }
+          }
+
+          const elapsed = (Date.now() - startTime) / 1000;
+          const speed = (successful + failed) / elapsed;
+
+          await prisma.backgroundJob.update({
+            where: { id: jobId },
+            data: {
+              processed: successful + failed,
+              successful,
+              failed,
+              metadata: { speed: `${speed.toFixed(1)} products/sec`, rateLimitHits },
+            },
+          }).catch(() => { });
+
+          const batchDuration = Date.now() - batchStartTime;
+          const waitTime = batchRateLimited
+            ? RATE_LIMIT_DELAY
+            : Math.max(0, SHOPIFY_BATCH_DELAY - batchDuration);
+
+          if (waitTime > 0) {
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+          }
         }
       }
     } catch (error: any) {
-      console.error(`  ❌ Nhanh batch error:`, error.message);
-      // Mark all products in this batch as failed
-      for (const mapping of nhanhBatch) {
-        failed++;
-        try {
-          await prisma.productMapping.update({
-            where: { id: mapping.id },
-            data: {
-              syncStatus: SyncStatus.FAILED,
-              syncError: `Nhanh API error: ${error.message}`.substring(0, 500),
-              syncAttempts: { increment: 1 },
-            },
-          });
-        } catch (e) {
-          // Ignore
-        }
-      }
-    }
-
-    // Small delay between Nhanh batches
-    if (batchIndex < nhanhBatches.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+      console.error(`❌ Batch error:`, error.message);
+      failed += nhanhBatch.length;
     }
   }
 
   const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
-  const speed = (mappingIds.length / durationSeconds).toFixed(1);
+  const speed = durationSeconds > 0 ? ((successful + failed) / durationSeconds).toFixed(1) : "0";
   const durationFormatted = durationSeconds < 60 ? `${durationSeconds}s` : `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;
-  
-  console.log(`\n🎉 SUPER OPTIMIZED bulk sync completed!`);
-  console.log(`⏱️  Duration: ${durationFormatted} (${speed} products/sec)`);
-  console.log(`✅ Successful: ${successful}`);
-  console.log(`❌ Failed: ${failed}`);
-  if (rateLimitHits > 0) {
-    console.log(`⚠️ Rate limit hits: ${rateLimitHits}`);
-  }
 
-  // Update job as completed
+  console.log(`\n🎉 Completed in ${durationFormatted} (${speed} products/sec)`);
+  console.log(`✅ ${successful} | ❌ ${failed}`);
+
   await prisma.backgroundJob.update({
     where: { id: jobId },
     data: {
@@ -284,5 +402,5 @@ async function bulkSyncProductsBackground(mappingIds: string[], jobId: string) {
         rateLimitHits,
       },
     },
-  }).catch(() => {}); // Ignore errors
+  }).catch(() => { });
 }

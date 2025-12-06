@@ -1,4 +1,5 @@
 // API Route: Sync Product from Nhanh to Shopify
+// Updated to support multi-location sync with SUM logic for multiple depots
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { shopifyProductAPI } from "@/lib/shopify-product-api";
@@ -56,29 +57,112 @@ export async function POST(request: NextRequest) {
     });
 
     try {
-      // Get real-time inventory data from Nhanh API
-      // Using /v3.0/product/inventory endpoint with filter: ids
-      console.log(`Fetching inventory for product ${mapping.nhanhProductId} from Nhanh API...`);
-      
-      const inventoryData = await nhanhProductAPI.getProductInventory(mapping.nhanhProductId);
-      
-      console.log(`Product ${mapping.nhanhProductName}: quantity = ${inventoryData.quantity}`);
+      // Get active location mappings
+      const locationMappings = await prisma.locationMapping.findMany({
+        where: { active: true },
+      });
 
-      // Sync ONLY inventory to Shopify (not price)
-      const result = await shopifyProductAPI.updateVariantInventory(
-        mapping.shopifyVariantId,
-        inventoryData.quantity,
-        mapping.shopifyInventoryItemId || undefined
-      );
+      let syncResults: { locationId: string; locationName: string; quantity: number; depots: string[] }[] = [];
 
-      // Update mapping status to SYNCED and cache inventoryItemId
+      if (locationMappings.length > 0) {
+        // MULTI-LOCATION SYNC with SUM logic
+        // Group mappings by Shopify location (sum inventory from multiple depots → same location)
+        const locationGroups = new Map<string, {
+          locationId: string;
+          locationName: string;
+          depots: { id: string; name: string }[]
+        }>();
+
+        for (const locMapping of locationMappings) {
+          const existing = locationGroups.get(locMapping.shopifyLocationId);
+          if (existing) {
+            existing.depots.push({ id: locMapping.nhanhDepotId, name: locMapping.nhanhDepotName });
+          } else {
+            locationGroups.set(locMapping.shopifyLocationId, {
+              locationId: locMapping.shopifyLocationId,
+              locationName: locMapping.shopifyLocationName,
+              depots: [{ id: locMapping.nhanhDepotId, name: locMapping.nhanhDepotName }],
+            });
+          }
+        }
+
+        console.log(`[Sync] Multi-location sync for product ${mapping.nhanhProductId} to ${locationGroups.size} Shopify location(s)...`);
+
+        // Sync to each Shopify location (with summed inventory from multiple depots)
+        for (const [shopifyLocationId, group] of locationGroups) {
+          try {
+            let totalQuantity = 0;
+            const depotDetails: string[] = [];
+
+            // Sum inventory from all depots mapped to this Shopify location
+            for (const depot of group.depots) {
+              const inventoryData = await nhanhProductAPI.getProductInventoryByDepot(
+                mapping.nhanhProductId,
+                depot.id
+              );
+              totalQuantity += inventoryData.quantity;
+              depotDetails.push(`${depot.name}: ${inventoryData.quantity}`);
+
+              console.log(`[Sync] ${mapping.nhanhProductName}: depot ${depot.name} = ${inventoryData.quantity}`);
+            }
+
+            console.log(`[Sync] ${mapping.nhanhProductName}: TOTAL for ${group.locationName} = ${totalQuantity} (${depotDetails.join(' + ')})`);
+
+            // Update Shopify inventory at specific location with SUMMED quantity
+            await shopifyProductAPI.updateVariantInventory(
+              mapping.shopifyVariantId,
+              totalQuantity,
+              mapping.shopifyInventoryItemId || undefined,
+              shopifyLocationId
+            );
+
+            syncResults.push({
+              locationId: shopifyLocationId,
+              locationName: group.locationName,
+              quantity: totalQuantity,
+              depots: depotDetails,
+            });
+          } catch (locError: any) {
+            console.error(`[Sync] Error syncing to location ${group.locationName}:`, locError.message);
+            // Continue with other locations
+          }
+        }
+      } else {
+        // SINGLE-LOCATION SYNC (fallback): Use total available or NHANH_STORE_ID
+        console.log(`[Sync] Single-location sync for product ${mapping.nhanhProductId} (no location mappings)...`);
+
+        const inventoryData = await nhanhProductAPI.getProductInventory(mapping.nhanhProductId);
+        console.log(`[Sync] ${mapping.nhanhProductName}: quantity = ${inventoryData.quantity}`);
+
+        const result = await shopifyProductAPI.updateVariantInventory(
+          mapping.shopifyVariantId,
+          inventoryData.quantity,
+          mapping.shopifyInventoryItemId || undefined
+        );
+
+        // Cache inventoryItemId
+        if (result.inventoryItemId) {
+          await prisma.productMapping.update({
+            where: { id: mappingId },
+            data: { shopifyInventoryItemId: result.inventoryItemId },
+          });
+        }
+
+        syncResults.push({
+          locationId: "primary",
+          locationName: "Primary Location",
+          quantity: inventoryData.quantity,
+          depots: ["Total Available"],
+        });
+      }
+
+      // Update mapping status to SYNCED
       const updatedMapping = await prisma.productMapping.update({
         where: { id: mappingId },
         data: {
           syncStatus: "SYNCED",
           lastSyncedAt: new Date(),
           syncError: null,
-          shopifyInventoryItemId: result.inventoryItemId,
         },
       });
 
@@ -88,21 +172,26 @@ export async function POST(request: NextRequest) {
           mappingId,
           action: "MANUAL_SYNC",
           status: "SYNCED",
-          message: "Inventory synced successfully",
+          message: locationMappings.length > 0
+            ? `Multi-location sync to ${syncResults.length} location(s) with SUM logic`
+            : "Single-location sync",
           metadata: {
-            quantity: inventoryData.quantity,
-            price: inventoryData.price,
             syncedAt: new Date().toISOString(),
+            locations: syncResults,
+            mode: locationMappings.length > 0 ? "multi-location-sum" : "single-location",
           },
         },
       });
 
       return NextResponse.json({
         success: true,
-        message: "Inventory synced successfully",
+        message: locationMappings.length > 0
+          ? `Inventory synced to ${syncResults.length} location(s) with summed depot quantities`
+          : "Inventory synced successfully",
         data: {
           ...updatedMapping,
           nhanhPrice: parseFloat(updatedMapping.nhanhPrice.toString()),
+          syncResults,
         },
       });
     } catch (syncError: any) {
