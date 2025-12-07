@@ -117,43 +117,45 @@ export default function PendingApprovalsPage() {
         <div className="space-y-6">
             <PageBreadcrumb pageTitle="Pending Approvals" />
 
-            <div>
-                <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Pending Approvals</h1>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    Items waiting for approval before syncing
-                </p>
-            </div>
+            <div className="flex flex-col gap-5 sm:flex-row sm:justify-between sm:items-center">
+                <div>
+                    <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Pending Approvals</h1>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                        Items waiting for approval before syncing
+                    </p>
+                </div>
 
-            {/* Tabs */}
-            <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
-                <button
-                    onClick={() => setActiveTab("products")}
-                    className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === "products"
-                            ? "border-brand-500 text-brand-600 dark:text-brand-400"
-                            : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400"
-                        }`}
-                >
-                    Products
-                    {products.length > 0 && (
-                        <Badge size="sm" color="warning">
-                            {products.length}
-                        </Badge>
-                    )}
-                </button>
-                <button
-                    onClick={() => setActiveTab("customers")}
-                    className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === "customers"
-                            ? "border-brand-500 text-brand-600 dark:text-brand-400"
-                            : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400"
-                        }`}
-                >
-                    Customers
-                    {customers.length > 0 && (
-                        <Badge size="sm" color="warning">
-                            {customers.length}
-                        </Badge>
-                    )}
-                </button>
+                {/* Tabs */}
+                <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-900 w-fit">
+                    <button
+                        onClick={() => setActiveTab("products")}
+                        className={`px-3 py-2 font-medium rounded-md text-sm transition-colors flex items-center gap-2 ${activeTab === "products"
+                                ? "shadow-sm text-gray-900 dark:text-white bg-white dark:bg-gray-800"
+                                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                            }`}
+                    >
+                        Products
+                        {products.length > 0 && (
+                            <Badge size="sm" color="warning">
+                                {products.length}
+                            </Badge>
+                        )}
+                    </button>
+                    <button
+                        onClick={() => setActiveTab("customers")}
+                        className={`px-3 py-2 font-medium rounded-md text-sm transition-colors flex items-center gap-2 ${activeTab === "customers"
+                                ? "shadow-sm text-gray-900 dark:text-white bg-white dark:bg-gray-800"
+                                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                            }`}
+                    >
+                        Customers
+                        {customers.length > 0 && (
+                            <Badge size="sm" color="warning">
+                                {customers.length}
+                            </Badge>
+                        )}
+                    </button>
+                </div>
             </div>
 
             {/* Actions */}
