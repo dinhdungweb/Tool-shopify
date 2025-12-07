@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
     // Format data for export
     const exportData = jobs.map(job => {
-      const duration = job.completedAt 
+      const duration = job.completedAt
         ? Math.round((new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000)
         : Math.round((Date.now() - new Date(job.startedAt).getTime()) / 1000);
 
@@ -43,9 +43,9 @@ export async function GET(request: NextRequest) {
         "Failed": job.failed,
         "Progress %": job.total > 0 ? Math.round((job.processed / job.total) * 100) : 0,
         "Duration (seconds)": duration,
-        "Speed": job.metadata?.speed || "",
+        "Speed": (job.metadata as Record<string, unknown>)?.speed || "",
         "Started At": new Date(job.startedAt).toLocaleString("vi-VN"),
-        "Completed At": job.completedAt 
+        "Completed At": job.completedAt
           ? new Date(job.completedAt).toLocaleString("vi-VN")
           : "",
         "Error": job.error || "",
