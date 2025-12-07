@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { shopifyProductAPI } from "@/lib/shopify-product-api";
 import { nhanhProductAPI } from "@/lib/nhanh-product-api";
 import { SyncStatus } from "@prisma/client";
+import { evaluateRules } from "@/lib/sync-rules-engine";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes
@@ -127,6 +128,52 @@ async function bulkSyncOptimized(
     failed += invalidCount;
   }
 
+  // =====================
+  // SYNC RULES EVALUATION
+  // =====================
+  // Evaluate rules for each mapping and filter out skipped/approval-needed ones
+  const mappingsToSync: typeof validMappings = [];
+  let skippedByRules = 0;
+  let pendingApproval = 0;
+
+  for (const mapping of validMappings) {
+    try {
+      const rulesResult = await evaluateRules({ type: "product", mapping });
+
+      if (rulesResult.skipSync) {
+        skippedByRules++;
+        await prisma.productMapping.update({
+          where: { id: mapping.id },
+          data: { syncStatus: SyncStatus.SYNCED, syncError: null },
+        }).catch(() => { });
+        console.log(`⏭️ Skipped by rule: ${mapping.nhanhProductName}`);
+        continue;
+      }
+
+      if (rulesResult.requireApproval) {
+        pendingApproval++;
+        await prisma.productMapping.update({
+          where: { id: mapping.id },
+          data: {
+            syncStatus: "PENDING_APPROVAL" as any,
+            syncError: `Requires approval: ${rulesResult.approvalReason}`,
+          },
+        }).catch(() => { });
+        console.log(`⏸️ Pending approval: ${mapping.nhanhProductName}`);
+        continue;
+      }
+
+      mappingsToSync.push(mapping);
+    } catch (err) {
+      mappingsToSync.push(mapping); // On error, proceed with sync
+    }
+  }
+
+  if (skippedByRules > 0 || pendingApproval > 0) {
+    console.log(`📋 Rules: ${skippedByRules} skipped, ${pendingApproval} pending approval`);
+    successful += skippedByRules; // Count skipped as successful (processed)
+  }
+
   // Collect all unique depot IDs upfront
   const allDepotIds: string[] = [];
   for (const group of locationGroups.values()) {
@@ -137,10 +184,10 @@ async function bulkSyncOptimized(
     }
   }
 
-  // Split into batches
-  const nhanhBatches: typeof validMappings[] = [];
-  for (let i = 0; i < validMappings.length; i += NHANH_BATCH_SIZE) {
-    nhanhBatches.push(validMappings.slice(i, i + NHANH_BATCH_SIZE));
+  // Split filtered mappings into batches
+  const nhanhBatches: typeof mappingsToSync[] = [];
+  for (let i = 0; i < mappingsToSync.length; i += NHANH_BATCH_SIZE) {
+    nhanhBatches.push(mappingsToSync.slice(i, i + NHANH_BATCH_SIZE));
   }
 
   console.log(`📦 ${nhanhBatches.length} batches (${NHANH_BATCH_SIZE} products/batch)`);

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { shopifyProductAPI } from "@/lib/shopify-product-api";
 import { nhanhProductAPI } from "@/lib/nhanh-product-api";
+import { evaluateRules, executeActions } from "@/lib/sync-rules-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,52 @@ export async function POST(request: NextRequest) {
         syncAttempts: { increment: 1 },
       },
     });
+
+    // =========================
+    // SYNC RULES EVALUATION
+    // =========================
+    const rulesResult = await evaluateRules({
+      type: "product",
+      mapping,
+    });
+
+    // Handle SKIP_SYNC action
+    if (rulesResult.skipSync) {
+      console.log(`[Sync] Product ${mapping.nhanhProductName} skipped by rules`);
+
+      await prisma.productMapping.update({
+        where: { id: mappingId },
+        data: { syncStatus: "SYNCED", syncError: null },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: "Sync skipped by rule",
+        skipped: true,
+        triggeredRules: rulesResult.triggeredRules.map(r => r.ruleName),
+      });
+    }
+
+    // Handle REQUIRE_APPROVAL action
+    if (rulesResult.requireApproval) {
+      console.log(`[Sync] Product ${mapping.nhanhProductName} requires approval: ${rulesResult.approvalReason}`);
+
+      await prisma.productMapping.update({
+        where: { id: mappingId },
+        data: {
+          syncStatus: "PENDING_APPROVAL" as any,
+          syncError: `Requires approval: ${rulesResult.approvalReason}`,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: "Sync requires approval",
+        requiresApproval: true,
+        reason: rulesResult.approvalReason,
+        triggeredRules: rulesResult.triggeredRules.map(r => r.ruleName),
+      });
+    }
 
     try {
       // Get active location mappings
@@ -179,9 +226,15 @@ export async function POST(request: NextRequest) {
             syncedAt: new Date().toISOString(),
             locations: syncResults,
             mode: locationMappings.length > 0 ? "multi-location-sum" : "single-location",
+            triggeredRules: rulesResult.triggeredRules.map(r => r.ruleName),
           },
         },
       });
+
+      // Execute post-sync actions (tags, notifications, etc.)
+      if (rulesResult.postActions.length > 0) {
+        await executeActions(rulesResult.postActions, { mapping: updatedMapping });
+      }
 
       return NextResponse.json({
         success: true,
