@@ -6,26 +6,30 @@ interface SyncStatusBadgeProps {
 }
 
 export default function SyncStatusBadge({ status }: SyncStatusBadgeProps) {
-  const statusConfig = {
-    [SyncStatus.UNMAPPED]: {
+  const statusConfig: Record<string, { color: "light" | "warning" | "success" | "error" | "primary"; label: string }> = {
+    UNMAPPED: {
       color: "light" as const,
       label: "Not Mapped",
     },
-    [SyncStatus.PENDING]: {
+    PENDING: {
       color: "warning" as const,
       label: "Pending",
     },
-    [SyncStatus.SYNCED]: {
+    SYNCED: {
       color: "success" as const,
       label: "Synced",
     },
-    [SyncStatus.FAILED]: {
+    FAILED: {
       color: "error" as const,
       label: "Failed",
     },
+    PENDING_APPROVAL: {
+      color: "primary" as const,
+      label: "Cần Duyệt",
+    },
   };
 
-  const config = statusConfig[status];
+  const config = statusConfig[status as string] || statusConfig.PENDING;
 
   return (
     <Badge size="sm" color={config.color}>

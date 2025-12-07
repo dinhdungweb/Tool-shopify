@@ -385,6 +385,7 @@ enum SyncStatus {
   PENDING
   SYNCED
   FAILED
+  PENDING_APPROVAL
 }
 
 enum SyncAction {
@@ -395,6 +396,7 @@ enum SyncAction {
   BULK_SYNC
   RETRY
   INVENTORY_UPDATE
+  RULE_TRIGGERED
 }
 
 enum CampaignStatus {
@@ -425,6 +427,12 @@ enum ScheduleType {
   SCHEDULED
 }
 
+enum RuleTargetType {
+  PRODUCT
+  CUSTOMER
+  ALL
+}
+
 model LocationMapping {
   id                String   @id @default(cuid())
   createdAt         DateTime @default(now())
@@ -440,4 +448,57 @@ model LocationMapping {
   
   @@unique([nhanhDepotId, shopifyLocationId])
   @@map("location_mappings")
+}
+
+// Sync Rules & Automation
+model SyncRule {
+  id          String         @id @default(cuid())
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  
+  name        String
+  description String?
+  enabled     Boolean        @default(true)
+  priority    Int            @default(0) // Higher = runs first
+  
+  targetType  RuleTargetType @default(PRODUCT)
+  
+  // Conditions: [{ field, operator, value }]
+  conditions  Json
+  conditionOperator String   @default("AND") // "AND" | "OR"
+  
+  // Actions: [{ type, params }]
+  actions     Json
+  
+  // Stats
+  triggerCount   Int         @default(0)
+  lastTriggered  DateTime?
+  
+  logs        SyncRuleLog[]
+  
+  @@index([enabled])
+  @@index([priority])
+  @@index([targetType])
+  @@map("sync_rules")
+}
+
+model SyncRuleLog {
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now())
+  
+  ruleId      String
+  mappingId   String?
+  mappingType String?   // "product" | "customer"
+  
+  triggered   Boolean   // Did conditions match?
+  actionsExecuted Json? // Actions that were executed
+  result      String?   // "SUCCESS" | "SKIPPED" | "ERROR"
+  message     String?
+  
+  rule        SyncRule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  
+  @@index([ruleId])
+  @@index([createdAt])
+  @@index([mappingType])
+  @@map("sync_rule_logs")
 }
