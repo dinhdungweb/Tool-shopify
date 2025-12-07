@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import {
     DndContext,
     closestCenter,
@@ -18,6 +18,9 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import Button from "@/components/ui/button/Button";
+import Input from "@/components/form/input/InputField";
+import Select from "@/components/form/Select";
+import Label from "@/components/form/Label";
 
 // Condition and Action types
 interface Condition {
@@ -79,15 +82,20 @@ const ACTION_TYPES = [
     { value: "LOG_WARNING", label: "Ghi cảnh báo", hasParams: true, paramKey: "message" },
 ];
 
+const TARGET_TYPE_OPTIONS = [
+    { value: "PRODUCT", label: "Sản phẩm" },
+    { value: "CUSTOMER", label: "Khách hàng" },
+    { value: "ALL", label: "Cả hai" },
+];
+
+const CONDITION_OPERATOR_OPTIONS = [
+    { value: "AND", label: "Tất cả (AND)" },
+    { value: "OR", label: "Bất kỳ (OR)" },
+];
+
 // Sortable Item Component
 function SortableItem({ id, children }: { id: string; children: React.ReactNode }) {
-    const {
-        attributes,
-        listeners,
-        setNodeRef,
-        transform,
-        transition,
-    } = useSortable({ id });
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
 
     const style = {
         transform: CSS.Transform.toString(transform),
@@ -95,11 +103,12 @@ function SortableItem({ id, children }: { id: string; children: React.ReactNode 
     };
 
     return (
-        <div ref={setNodeRef} style={style} className="flex items-center gap-2 mb-2">
+        <div ref={setNodeRef} style={style} className="flex items-center gap-2 mb-3">
             <button
                 {...attributes}
                 {...listeners}
-                className="cursor-grab p-2 text-gray-400 hover:text-gray-600"
+                type="button"
+                className="cursor-grab p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
             >
                 ⋮⋮
             </button>
@@ -137,7 +146,7 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
 
     const fieldOptions = targetType === "CUSTOMER" ? CUSTOMER_FIELDS : PRODUCT_FIELDS;
 
-    // Add new condition
+    // Condition handlers
     const addCondition = () => {
         setConditions([
             ...conditions,
@@ -145,43 +154,32 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
         ]);
     };
 
-    // Remove condition
     const removeCondition = (id: string) => {
         if (conditions.length > 1) {
             setConditions(conditions.filter((c) => c.id !== id));
         }
     };
 
-    // Update condition
     const updateCondition = (id: string, key: string, value: string) => {
-        setConditions(
-            conditions.map((c) => (c.id === id ? { ...c, [key]: value } : c))
-        );
+        setConditions(conditions.map((c) => (c.id === id ? { ...c, [key]: value } : c)));
     };
 
-    // Add new action
+    // Action handlers
     const addAction = () => {
-        setActions([
-            ...actions,
-            { id: `a-${Date.now()}`, type: "SKIP_SYNC", params: {} },
-        ]);
+        setActions([...actions, { id: `a-${Date.now()}`, type: "SKIP_SYNC", params: {} }]);
     };
 
-    // Remove action
     const removeAction = (id: string) => {
         if (actions.length > 1) {
             setActions(actions.filter((a) => a.id !== id));
         }
     };
 
-    // Update action
     const updateAction = (id: string, type: string, params: Record<string, string>) => {
-        setActions(
-            actions.map((a) => (a.id === id ? { ...a, type, params } : a))
-        );
+        setActions(actions.map((a) => (a.id === id ? { ...a, type, params } : a)));
     };
 
-    // Handle drag end for conditions
+    // Drag handlers
     const handleConditionDragEnd = (event: DragEndEvent) => {
         const { active, over } = event;
         if (over && active.id !== over.id) {
@@ -193,7 +191,6 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
         }
     };
 
-    // Handle drag end for actions
     const handleActionDragEnd = (event: DragEndEvent) => {
         const { active, over } = event;
         if (over && active.id !== over.id) {
@@ -205,7 +202,7 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
         }
     };
 
-    // Handle save
+    // Save handler
     const handleSave = async () => {
         if (!name.trim()) {
             alert("Vui lòng nhập tên rule");
@@ -235,42 +232,30 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
             </h2>
 
             {/* Basic Info */}
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 mb-6">
                 <div>
-                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                        Tên Rule *
-                    </label>
-                    <input
+                    <Label>Tên Rule *</Label>
+                    <Input
                         type="text"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
                         placeholder="VD: Low Stock Alert"
                     />
                 </div>
                 <div>
-                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                        Áp dụng cho
-                    </label>
-                    <select
+                    <Label>Áp dụng cho</Label>
+                    <Select
+                        options={TARGET_TYPE_OPTIONS}
                         value={targetType}
-                        onChange={(e) => setTargetType(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
-                    >
-                        <option value="PRODUCT">Sản phẩm</option>
-                        <option value="CUSTOMER">Khách hàng</option>
-                        <option value="ALL">Cả hai</option>
-                    </select>
+                        onChange={(val) => setTargetType(val)}
+                    />
                 </div>
-                <div className="col-span-2">
-                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                        Mô tả
-                    </label>
-                    <input
+                <div className="sm:col-span-2">
+                    <Label>Mô tả</Label>
+                    <Input
                         type="text"
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
                         placeholder="Mô tả ngắn về rule này"
                     />
                 </div>
@@ -278,53 +263,47 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
 
             {/* Conditions */}
             <div className="mb-6">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-white">
                         Điều kiện (Conditions)
                     </h3>
-                    <select
+                    <Select
+                        options={CONDITION_OPERATOR_OPTIONS}
                         value={conditionOperator}
-                        onChange={(e) => setConditionOperator(e.target.value)}
-                        className="px-2 py-1 border rounded dark:bg-gray-700 dark:border-gray-600 text-sm"
-                    >
-                        <option value="AND">Tất cả (AND)</option>
-                        <option value="OR">Bất kỳ (OR)</option>
-                    </select>
+                        onChange={(val) => setConditionOperator(val)}
+                        className="w-36"
+                    />
                 </div>
 
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleConditionDragEnd}>
                     <SortableContext items={conditions.map((c) => c.id)} strategy={verticalListSortingStrategy}>
                         {conditions.map((condition) => (
                             <SortableItem key={condition.id} id={condition.id}>
-                                <div className="flex-1 flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                    <select
+                                <div className="flex-1 flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                                    <Select
+                                        options={fieldOptions}
                                         value={condition.field}
-                                        onChange={(e) => updateCondition(condition.id, "field", e.target.value)}
-                                        className="px-2 py-1 border rounded dark:bg-gray-600 dark:border-gray-500 text-sm"
-                                    >
-                                        {fieldOptions.map((f) => (
-                                            <option key={f.value} value={f.value}>{f.label}</option>
-                                        ))}
-                                    </select>
-                                    <select
-                                        value={condition.operator}
-                                        onChange={(e) => updateCondition(condition.id, "operator", e.target.value)}
-                                        className="px-2 py-1 border rounded dark:bg-gray-600 dark:border-gray-500 text-sm"
-                                    >
-                                        {OPERATORS.map((o) => (
-                                            <option key={o.value} value={o.value}>{o.label}</option>
-                                        ))}
-                                    </select>
-                                    <input
-                                        type="text"
-                                        value={condition.value}
-                                        onChange={(e) => updateCondition(condition.id, "value", e.target.value)}
-                                        className="flex-1 px-2 py-1 border rounded dark:bg-gray-600 dark:border-gray-500 text-sm"
-                                        placeholder="Giá trị"
+                                        onChange={(val) => updateCondition(condition.id, "field", val)}
+                                        className="w-40"
                                     />
+                                    <Select
+                                        options={OPERATORS}
+                                        value={condition.operator}
+                                        onChange={(val) => updateCondition(condition.id, "operator", val)}
+                                        className="w-24"
+                                    />
+                                    <div className="flex-1">
+                                        <Input
+                                            type="text"
+                                            value={condition.value}
+                                            onChange={(e) => updateCondition(condition.id, "value", e.target.value)}
+                                            placeholder="Giá trị"
+                                        />
+                                    </div>
                                     <button
+                                        type="button"
                                         onClick={() => removeCondition(condition.id)}
-                                        className="text-red-500 hover:text-red-700 px-2"
+                                        className="text-error-500 hover:text-error-700 px-2"
                                         disabled={conditions.length === 1}
                                     >
                                         ✕
@@ -336,8 +315,9 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
                 </DndContext>
 
                 <button
+                    type="button"
                     onClick={addCondition}
-                    className="mt-2 text-sm text-blue-600 hover:text-blue-800"
+                    className="mt-2 text-sm text-brand-500 hover:text-brand-600"
                 >
                     + Thêm điều kiện
                 </button>
@@ -345,7 +325,7 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
 
             {/* Actions */}
             <div className="mb-6">
-                <h3 className="text-lg font-semibold mb-3 text-gray-800 dark:text-white">
+                <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-white">
                     Hành động (Actions)
                 </h3>
 
@@ -355,31 +335,30 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
                             const actionType = ACTION_TYPES.find((t) => t.value === action.type);
                             return (
                                 <SortableItem key={action.id} id={action.id}>
-                                    <div className="flex-1 flex items-center gap-2 p-3 bg-green-50 dark:bg-gray-700 rounded-lg">
-                                        <select
+                                    <div className="flex-1 flex items-center gap-3 p-3 bg-success-50 dark:bg-gray-800 rounded-lg border border-success-200 dark:border-gray-700">
+                                        <Select
+                                            options={ACTION_TYPES}
                                             value={action.type}
-                                            onChange={(e) => updateAction(action.id, e.target.value, {})}
-                                            className="px-2 py-1 border rounded dark:bg-gray-600 dark:border-gray-500 text-sm"
-                                        >
-                                            {ACTION_TYPES.map((t) => (
-                                                <option key={t.value} value={t.value}>{t.label}</option>
-                                            ))}
-                                        </select>
-                                        {ACTION_TYPES.find((t) => t.value === action.type)?.hasParams && (
-                                            <input
-                                                type="text"
-                                                value={action.params[ACTION_TYPES.find((t) => t.value === action.type)?.paramKey || ""] || ""}
-                                                onChange={(e) => {
-                                                    const paramKey = ACTION_TYPES.find((t) => t.value === action.type)?.paramKey || "";
-                                                    updateAction(action.id, action.type, { [paramKey]: e.target.value });
-                                                }}
-                                                className="flex-1 px-2 py-1 border rounded dark:bg-gray-600 dark:border-gray-500 text-sm"
-                                                placeholder={ACTION_TYPES.find((t) => t.value === action.type)?.paramKey}
-                                            />
+                                            onChange={(val) => updateAction(action.id, val, {})}
+                                            className="w-40"
+                                        />
+                                        {actionType?.hasParams && (
+                                            <div className="flex-1">
+                                                <Input
+                                                    type="text"
+                                                    value={action.params[actionType.paramKey || ""] || ""}
+                                                    onChange={(e) => {
+                                                        const paramKey = actionType.paramKey || "";
+                                                        updateAction(action.id, action.type, { [paramKey]: e.target.value });
+                                                    }}
+                                                    placeholder={actionType.paramKey}
+                                                />
+                                            </div>
                                         )}
                                         <button
+                                            type="button"
                                             onClick={() => removeAction(action.id)}
-                                            className="text-red-500 hover:text-red-700 px-2"
+                                            className="text-error-500 hover:text-error-700 px-2"
                                             disabled={actions.length === 1}
                                         >
                                             ✕
@@ -392,8 +371,9 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
                 </DndContext>
 
                 <button
+                    type="button"
                     onClick={addAction}
-                    className="mt-2 text-sm text-blue-600 hover:text-blue-800"
+                    className="mt-2 text-sm text-brand-500 hover:text-brand-600"
                 >
                     + Thêm hành động
                 </button>
@@ -401,21 +381,17 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
 
             {/* Priority */}
             <div className="mb-6">
-                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                    Độ ưu tiên (priority cao hơn = chạy trước)
-                </label>
-                <input
+                <Label>Độ ưu tiên (priority cao hơn = chạy trước)</Label>
+                <Input
                     type="number"
                     value={priority}
                     onChange={(e) => setPriority(Number(e.target.value))}
-                    className="w-32 px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
-                    min={0}
-                    max={100}
+                    className="w-32"
                 />
             </div>
 
             {/* Buttons */}
-            <div className="flex justify-end gap-3">
+            <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <Button variant="outline" onClick={onCancel}>
                     Hủy
                 </Button>

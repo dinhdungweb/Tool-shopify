@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import PageBreadcrumb from "@/components/common/PageBreadCrumb";
 import Button from "@/components/ui/button/Button";
+import Badge from "@/components/ui/badge/Badge";
 
 interface PendingItem {
     id: string;
@@ -123,25 +124,41 @@ export default function PendingApprovalsPage() {
                 </p>
             </div>
 
-            <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700">
+            {/* Tabs */}
+            <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
                 <button
                     onClick={() => setActiveTab("products")}
-                    className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${activeTab === "products" ? "border-brand-500 text-brand-600" : "border-transparent text-gray-500"
+                    className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === "products"
+                            ? "border-brand-500 text-brand-600 dark:text-brand-400"
+                            : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400"
                         }`}
                 >
-                    Sản phẩm ({products.length})
+                    Sản phẩm
+                    {products.length > 0 && (
+                        <Badge size="sm" color="warning">
+                            {products.length}
+                        </Badge>
+                    )}
                 </button>
                 <button
                     onClick={() => setActiveTab("customers")}
-                    className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${activeTab === "customers" ? "border-brand-500 text-brand-600" : "border-transparent text-gray-500"
+                    className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === "customers"
+                            ? "border-brand-500 text-brand-600 dark:text-brand-400"
+                            : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400"
                         }`}
                 >
-                    Khách hàng ({customers.length})
+                    Khách hàng
+                    {customers.length > 0 && (
+                        <Badge size="sm" color="warning">
+                            {customers.length}
+                        </Badge>
+                    )}
                 </button>
             </div>
 
+            {/* Actions */}
             {currentItems.length > 0 && (
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                     <Button
                         onClick={() => handleAction(activeTab === "products" ? "product" : "customer", "approve")}
                         disabled={currentSelected.length === 0 || processing}
@@ -160,51 +177,56 @@ export default function PendingApprovalsPage() {
                 </div>
             )}
 
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+            {/* Table */}
+            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
                 {loading ? (
                     <div className="p-8 text-center">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500 mx-auto"></div>
-                        <p className="mt-4 text-gray-500">Đang tải...</p>
+                        <p className="mt-4 text-gray-500 dark:text-gray-400">Đang tải...</p>
                     </div>
                 ) : currentItems.length === 0 ? (
-                    <div className="p-8 text-center text-gray-500">Không có items nào đang chờ duyệt</div>
+                    <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                        Không có items nào đang chờ duyệt
+                    </div>
                 ) : (
-                    <table className="w-full">
-                        <thead className="bg-gray-50 dark:bg-gray-700">
-                            <tr>
-                                <th className="px-4 py-3 text-left">
-                                    <input
-                                        type="checkbox"
-                                        checked={currentSelected.length === currentItems.length && currentItems.length > 0}
-                                        onChange={() => toggleSelectAll(activeTab === "products" ? "product" : "customer")}
-                                        className="rounded"
-                                    />
-                                </th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tên</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID/SKU</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Chi tiết</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Thời gian</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                            {currentItems.map((item) => (
-                                <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                                    <td className="px-4 py-3">
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead>
+                                <tr className="border-b border-gray-100 dark:border-gray-800">
+                                    <th className="px-5 py-3.5 text-left">
                                         <input
                                             type="checkbox"
-                                            checked={currentSelected.includes(item.id)}
-                                            onChange={() => toggleSelect(activeTab === "products" ? "product" : "customer", item.id)}
-                                            className="rounded"
+                                            checked={currentSelected.length === currentItems.length && currentItems.length > 0}
+                                            onChange={() => toggleSelectAll(activeTab === "products" ? "product" : "customer")}
+                                            className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
                                         />
-                                    </td>
-                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-white">{item.name}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{item.identifier}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{item.details}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-500">{item.updatedAt}</td>
+                                    </th>
+                                    <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">Tên</th>
+                                    <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">ID/SKU</th>
+                                    <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">Chi tiết</th>
+                                    <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">Thời gian</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                                {currentItems.map((item) => (
+                                    <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                        <td className="px-5 py-4">
+                                            <input
+                                                type="checkbox"
+                                                checked={currentSelected.includes(item.id)}
+                                                onChange={() => toggleSelect(activeTab === "products" ? "product" : "customer", item.id)}
+                                                className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                                            />
+                                        </td>
+                                        <td className="px-5 py-4 font-medium text-gray-800 dark:text-white/90">{item.name}</td>
+                                        <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300">{item.identifier}</td>
+                                        <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300">{item.details}</td>
+                                        <td className="px-5 py-4 text-sm text-gray-500 dark:text-gray-400">{item.updatedAt}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 )}
             </div>
         </div>
