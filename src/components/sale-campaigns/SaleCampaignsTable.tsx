@@ -7,6 +7,7 @@ import CampaignStatusBadge from "./CampaignStatusBadge";
 import CreateCampaignModal from "./CreateCampaignModal";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "../ui/table";
 import Pagination from "../tables/Pagination";
+import { CheckCircleIcon, TrashBinIcon, SyncIcon } from "@/icons";
 
 export default function SaleCampaignsTable() {
   const [campaigns, setCampaigns] = useState<any[]>([]);
@@ -61,10 +62,10 @@ export default function SaleCampaignsTable() {
     try {
       setActionLoadingId(campaignId);
       const result = await saleClient.applyCampaign(campaignId);
-      
+
       // Reload campaigns to show updated status
       await loadCampaigns();
-      
+
       alert(`Campaign applied successfully!\n\n${result.affectedCount} variants updated.`);
     } catch (error: any) {
       console.error("Error applying campaign:", error);
@@ -82,10 +83,10 @@ export default function SaleCampaignsTable() {
     try {
       setActionLoadingId(campaignId);
       const result = await saleClient.revertCampaign(campaignId);
-      
+
       // Reload campaigns to show updated status
       await loadCampaigns();
-      
+
       alert(`Campaign reverted successfully!\n\n${result.revertedCount} variants restored.`);
     } catch (error: any) {
       console.error("Error reverting campaign:", error);
@@ -222,8 +223,8 @@ export default function SaleCampaignsTable() {
 
             {filterDropdownOpen && (
               <>
-                <div 
-                  className="fixed inset-0 z-10" 
+                <div
+                  className="fixed inset-0 z-10"
                   onClick={() => setFilterDropdownOpen(false)}
                 />
                 <div className="absolute left-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
@@ -236,9 +237,8 @@ export default function SaleCampaignsTable() {
                           setPage(1);
                           setFilterDropdownOpen(false);
                         }}
-                        className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                          statusFilter === status ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
-                        }`}
+                        className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${statusFilter === status ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                          }`}
                       >
                         {statusFilter === status && (
                           <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
@@ -343,52 +343,46 @@ export default function SaleCampaignsTable() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <div className="flex justify-end gap-2">
+                    <div className="flex justify-end gap-1">
                       {campaign.status === "SCHEDULED" ? (
                         <button
                           onClick={() => handleApply(campaign.id, campaign.name)}
                           disabled={actionLoadingId === campaign.id}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-success-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-success-600 disabled:opacity-50"
+                          className="p-2 text-gray-500 hover:text-success-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                          title="Apply"
                         >
                           {actionLoadingId === campaign.id ? (
-                            <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                            <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-success-500" />
                           ) : (
-                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
+                            <CheckCircleIcon className="w-5 h-5" />
                           )}
-                          Apply
                         </button>
                       ) : campaign.status === "ACTIVE" ? (
                         <button
                           onClick={() => handleRevert(campaign.id, campaign.name)}
                           disabled={actionLoadingId === campaign.id}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-warning-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-warning-600 disabled:opacity-50"
+                          className="p-2 text-gray-500 hover:text-warning-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                          title="Revert"
                         >
                           {actionLoadingId === campaign.id ? (
-                            <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                            <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-warning-500" />
                           ) : (
-                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                            </svg>
+                            <SyncIcon className="w-5 h-5" />
                           )}
-                          Revert
                         </button>
                       ) : null}
 
-                      {campaign.status !== "ACTIVE" && 
-                       campaign.status !== "APPLYING" && 
-                       campaign.status !== "REVERTING" && (
-                        <button
-                          onClick={() => handleDelete(campaign.id, campaign.name)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-danger-300 bg-white px-3 py-1.5 text-xs font-medium text-danger-700 hover:bg-danger-50 dark:border-danger-700 dark:bg-gray-800 dark:text-danger-400 dark:hover:bg-danger-900/20"
-                        >
-                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                          Delete
-                        </button>
-                      )}
+                      {campaign.status !== "ACTIVE" &&
+                        campaign.status !== "APPLYING" &&
+                        campaign.status !== "REVERTING" && (
+                          <button
+                            onClick={() => handleDelete(campaign.id, campaign.name)}
+                            className="p-2 text-gray-500 hover:text-error-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                            title="Delete"
+                          >
+                            <TrashBinIcon className="w-5 h-5" />
+                          </button>
+                        )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -408,7 +402,7 @@ export default function SaleCampaignsTable() {
             </span>{" "}
             of <span className="font-medium text-gray-700 dark:text-gray-300">{total}</span> campaigns
           </div>
-          
+
           <Pagination
             currentPage={page}
             totalPages={totalPages}

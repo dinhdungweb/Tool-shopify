@@ -33,8 +33,8 @@ export default function PendingApprovalsPage() {
                         id: p.id,
                         name: p.nhanhProductName,
                         identifier: p.nhanhSku || p.nhanhProductId,
-                        details: `Giá: ${Number(p.nhanhPrice).toLocaleString()}đ`,
-                        updatedAt: new Date(p.updatedAt).toLocaleString("vi-VN"),
+                        details: `Price: ${Number(p.nhanhPrice).toLocaleString()}đ`,
+                        updatedAt: new Date(p.updatedAt).toLocaleString("en-US"),
                     }))
                 );
                 setCustomers(
@@ -43,7 +43,7 @@ export default function PendingApprovalsPage() {
                         name: c.nhanhCustomerName,
                         identifier: c.nhanhCustomerPhone || c.nhanhCustomerEmail || c.nhanhCustomerId,
                         details: c.nhanhCustomerEmail || "",
-                        updatedAt: new Date(c.updatedAt).toLocaleString("vi-VN"),
+                        updatedAt: new Date(c.updatedAt).toLocaleString("en-US"),
                     }))
                 );
             }
@@ -61,7 +61,7 @@ export default function PendingApprovalsPage() {
     const handleAction = async (type: "product" | "customer", action: "approve" | "reject") => {
         const ids = type === "product" ? selectedProducts : selectedCustomers;
         if (ids.length === 0) {
-            alert("Vui lòng chọn ít nhất 1 item");
+            alert("Please select at least 1 item");
             return;
         }
 
@@ -80,11 +80,11 @@ export default function PendingApprovalsPage() {
                 if (type === "product") setSelectedProducts([]);
                 else setSelectedCustomers([]);
             } else {
-                alert(data.error || "Lỗi xử lý");
+                alert(data.error || "Processing error");
             }
         } catch (error) {
             console.error("Error:", error);
-            alert("Lỗi khi xử lý");
+            alert("Error processing request");
         } finally {
             setProcessing(false);
         }
@@ -120,7 +120,7 @@ export default function PendingApprovalsPage() {
             <div>
                 <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Pending Approvals</h1>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    Các items đang chờ duyệt trước khi sync
+                    Items waiting for approval before syncing
                 </p>
             </div>
 
@@ -133,7 +133,7 @@ export default function PendingApprovalsPage() {
                             : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400"
                         }`}
                 >
-                    Sản phẩm
+                    Products
                     {products.length > 0 && (
                         <Badge size="sm" color="warning">
                             {products.length}
@@ -147,7 +147,7 @@ export default function PendingApprovalsPage() {
                             : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400"
                         }`}
                 >
-                    Khách hàng
+                    Customers
                     {customers.length > 0 && (
                         <Badge size="sm" color="warning">
                             {customers.length}
@@ -164,7 +164,7 @@ export default function PendingApprovalsPage() {
                         disabled={currentSelected.length === 0 || processing}
                         size="sm"
                     >
-                        ✓ Duyệt ({currentSelected.length})
+                        ✓ Approve ({currentSelected.length})
                     </Button>
                     <Button
                         variant="outline"
@@ -172,7 +172,7 @@ export default function PendingApprovalsPage() {
                         disabled={currentSelected.length === 0 || processing}
                         size="sm"
                     >
-                        ✕ Từ chối ({currentSelected.length})
+                        ✕ Reject ({currentSelected.length})
                     </Button>
                 </div>
             )}
@@ -182,11 +182,11 @@ export default function PendingApprovalsPage() {
                 {loading ? (
                     <div className="p-8 text-center">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500 mx-auto"></div>
-                        <p className="mt-4 text-gray-500 dark:text-gray-400">Đang tải...</p>
+                        <p className="mt-4 text-gray-500 dark:text-gray-400">Loading...</p>
                     </div>
                 ) : currentItems.length === 0 ? (
                     <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-                        Không có items nào đang chờ duyệt
+                        No items pending approval
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
@@ -201,10 +201,10 @@ export default function PendingApprovalsPage() {
                                             className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
                                         />
                                     </th>
-                                    <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">Tên</th>
+                                    <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">Name</th>
                                     <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">ID/SKU</th>
-                                    <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">Chi tiết</th>
-                                    <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">Thời gian</th>
+                                    <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">Details</th>
+                                    <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">Updated</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">

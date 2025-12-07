@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { nhanhClient, syncClient, shopifyClient } from "@/lib/api-client";
 import { NhanhCustomer } from "@/types/nhanh";
@@ -14,6 +14,7 @@ import Checkbox from "../form/input/Checkbox";
 import { useToast } from "../ui/toast/ToastContainer";
 import { useJobMonitor } from "@/hooks/useJobMonitor";
 import { exportToCSV } from "@/lib/export-utils";
+import { TrashBinIcon, SyncIcon, LinkIcon } from "@/icons";
 
 export default function CustomerSyncTable() {
   const { showToast } = useToast();
@@ -44,7 +45,7 @@ export default function CustomerSyncTable() {
   const [nhanhFilterType, setNhanhFilterType] = useState<number | null>(null);
   const [nhanhFilterDateFrom, setNhanhFilterDateFrom] = useState("");
   const [nhanhFilterDateTo, setNhanhFilterDateTo] = useState("");
-  const [nhanhSavedFilters, setNhanhSavedFilters] = useState<Array<{name: string; type: number | null; dateFrom: string; dateTo: string}>>([]);
+  const [nhanhSavedFilters, setNhanhSavedFilters] = useState<Array<{ name: string; type: number | null; dateFrom: string; dateTo: string }>>([]);
   const [nhanhFilterName, setNhanhFilterName] = useState("");
   const [jobNotification, setJobNotification] = useState<string | null>(null);
   const limit = 50;
@@ -106,14 +107,14 @@ export default function CustomerSyncTable() {
   async function loadData() {
     try {
       setLoading(true);
-      
+
       // Load customers from local database
       console.log("Loading customers from database...", { page, limit, keyword, filter });
       const params: any = { page, limit };
       if (keyword && keyword.trim()) {
         params.keyword = keyword.trim();
       }
-      
+
       // Apply filter based on selection
       if (filter === "mapped") {
         params.mappingStatus = "mapped";
@@ -123,15 +124,15 @@ export default function CustomerSyncTable() {
         // pending, synced, failed
         params.syncStatus = filter;
       }
-      
+
       const nhanhData = await nhanhClient.getLocalCustomers(params);
-      
+
       console.log("Loaded customers:", {
         count: nhanhData.customers.length,
         total: nhanhData.total,
         totalPages: nhanhData.totalPages,
       });
-      
+
       setCustomers(nhanhData.customers);
       setTotal(nhanhData.total);
       setTotalPages(nhanhData.totalPages);
@@ -148,7 +149,7 @@ export default function CustomerSyncTable() {
         }
       });
       setMappings(mappingsMap);
-      
+
       // Get total synced count separately
       const stats = await syncClient.getMappingStats();
       setSyncedCount(stats.synced);
@@ -188,7 +189,7 @@ export default function CustomerSyncTable() {
   async function handlePullIncremental() {
     // Check if filters are active
     const hasFilters = nhanhFilterType !== null || nhanhFilterDateFrom || nhanhFilterDateTo;
-    
+
     if (hasFilters) {
       alert(
         "⚠️ Cannot use Pull New/Updated with filters!\n\n" +
@@ -200,7 +201,7 @@ export default function CustomerSyncTable() {
       );
       return;
     }
-    
+
     if (!confirm("Pull only new/updated customers?\n\nThis is faster and recommended for daily updates.")) {
       return;
     }
@@ -211,7 +212,7 @@ export default function CustomerSyncTable() {
         method: "POST",
       });
       const result = await response.json();
-      
+
       if (result.success) {
         alert(
           `Incremental pull completed!\n\n` +
@@ -299,9 +300,9 @@ export default function CustomerSyncTable() {
       const response = await fetch(`/api/sync/mapping?id=${mapping.id}`, {
         method: "DELETE",
       });
-      
+
       const result = await response.json();
-      
+
       if (result.success) {
         alert("Mapping deleted successfully!");
         await loadData();
@@ -318,7 +319,7 @@ export default function CustomerSyncTable() {
 
   async function handlePullAllCustomers(forceRestart = false) {
     const restartMessage = forceRestart ? "\n\n⚠️ This will restart from the beginning!" : "";
-    
+
     if (!confirm(`Pull ALL customers from Nhanh.vn in background?${restartMessage}\n\n💡 This will pull ALL customers without any filters.\n\nNote: This can run in parallel with filtered pulls.\n\nThis will continue running even if you close this page. Check the console logs for progress.`)) {
       return;
     }
@@ -330,9 +331,9 @@ export default function CustomerSyncTable() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ forceRestart }), // Empty filters = pull all
       });
-      
+
       const result = await response.json();
-      
+
       if (result.success) {
         alert(
           "Background pull started!\n\n" +
@@ -351,7 +352,7 @@ export default function CustomerSyncTable() {
             "• Click Cancel to wait for current pull to finish\n\n" +
             "Note: Force restart will lose current progress."
           );
-          
+
           if (retry) {
             handlePullAllCustomers(true);
           }
@@ -372,7 +373,7 @@ export default function CustomerSyncTable() {
   async function handlePullShopifyCustomers(query?: string, forceRestart = false) {
     const filterMessage = query ? ` with filter: "${query}"` : "";
     const restartMessage = forceRestart ? "\n\n⚠️ This will restart from the beginning!" : "";
-    
+
     if (!confirm(`Pull Shopify customers${filterMessage} in background?${restartMessage}\n\n⚡ This will run in background and continue even if you close this page.\n\nCheck the server console logs for progress.`)) {
       return;
     }
@@ -384,7 +385,7 @@ export default function CustomerSyncTable() {
       setShopifyPullDropdownOpen(false);
     } catch (error: any) {
       console.error("Error pulling Shopify customers:", error);
-      
+
       // Check if pull is already running
       if (error.message?.includes("already running")) {
         const retry = confirm(
@@ -394,7 +395,7 @@ export default function CustomerSyncTable() {
           "• Click Cancel to wait for current pull to finish\n\n" +
           "Note: Force restart will lose current progress."
         );
-        
+
         if (retry) {
           // Retry with force restart
           handlePullShopifyCustomers(query, true);
@@ -402,14 +403,14 @@ export default function CustomerSyncTable() {
       } else {
         alert("Failed to start pull: " + error.message);
       }
-      
+
       setShopifyPullDropdownOpen(false);
     }
   }
 
   function handleSaveFilter(filter: string) {
     if (!filter.trim()) return;
-    
+
     const updated = [...new Set([...savedFilters, filter.trim()])];
     setSavedFilters(updated);
     localStorage.setItem("shopify_pull_filters", JSON.stringify(updated));
@@ -441,7 +442,7 @@ export default function CustomerSyncTable() {
     alert(`Filter "${newFilter.name}" saved!`);
   }
 
-  function handleLoadNhanhFilter(filter: {name: string; type: number | null; dateFrom: string; dateTo: string}) {
+  function handleLoadNhanhFilter(filter: { name: string; type: number | null; dateFrom: string; dateTo: string }) {
     setNhanhFilterType(filter.type);
     setNhanhFilterDateFrom(filter.dateFrom);
     setNhanhFilterDateTo(filter.dateTo);
@@ -458,7 +459,7 @@ export default function CustomerSyncTable() {
       alert("Please enter a filter query");
       return;
     }
-    
+
     setCustomFilterModalOpen(false);
     handlePullShopifyCustomers(customFilterInput.trim());
     setCustomFilterInput("");
@@ -471,17 +472,17 @@ export default function CustomerSyncTable() {
 
     try {
       setLoading(true);
-      
+
       // Use batch method - optimized for large datasets with 3 phone sources
       const result = await syncClient.autoMatchBatch(false);
-      
+
       await loadData();
-      
+
       const durationText = result.duration ? `\nDuration: ${result.duration}` : "";
-      const speedText = result.duration 
+      const speedText = result.duration
         ? `\nSpeed: ${Math.round(result.total / parseFloat(result.duration))} customers/sec`
         : "";
-      
+
       alert(
         `Auto-match completed!${durationText}${speedText}\n\nTotal: ${result.total}\nMatched: ${result.matched}\nSkipped: ${result.skipped}`
       );
@@ -496,11 +497,11 @@ export default function CustomerSyncTable() {
   async function handleBulkSync() {
     try {
       setLoading(true);
-      
+
       // If selected customers > current page, need to fetch all mappings
       const selectedCustomerIds = Array.from(selectedCustomers);
       let mappingIds: string[];
-      
+
       if (selectedCustomerIds.length > customers.length) {
         // Selected across multiple pages - fetch all mappings
         console.log(`Fetching mappings for ${selectedCustomerIds.length} selected customers...`);
@@ -531,10 +532,10 @@ export default function CustomerSyncTable() {
         setLoading(false);
         return;
       }
-      
+
       // Always use background sync - works for all sizes
       const result = await syncClient.bulkSyncBackground(mappingIds);
-      
+
       // Show notification with link to Job Tracking
       setJobNotification(`Syncing ${mappingIds.length} customers in background...`);
       setSelectedCustomers(new Set());
@@ -585,7 +586,7 @@ export default function CustomerSyncTable() {
   function getPageNumbers() {
     const pages: (number | string)[] = [];
     const maxVisible = 7; // Maximum number of page buttons to show
-    
+
     if (totalPages <= maxVisible) {
       // Show all pages if total is small
       for (let i = 1; i <= totalPages; i++) {
@@ -594,27 +595,27 @@ export default function CustomerSyncTable() {
     } else {
       // Always show first page
       pages.push(1);
-      
+
       if (page > 3) {
         pages.push("...");
       }
-      
+
       // Show pages around current page
       const start = Math.max(2, page - 1);
       const end = Math.min(totalPages - 1, page + 1);
-      
+
       for (let i = start; i <= end; i++) {
         pages.push(i);
       }
-      
+
       if (page < totalPages - 2) {
         pages.push("...");
       }
-      
+
       // Always show last page
       pages.push(totalPages);
     }
-    
+
     return pages;
   }
 
@@ -693,8 +694,8 @@ export default function CustomerSyncTable() {
 
               {pullDropdownOpen && (
                 <>
-                  <div 
-                    className="fixed inset-0 z-10" 
+                  <div
+                    className="fixed inset-0 z-10"
                     onClick={() => setPullDropdownOpen(false)}
                   />
                   <div className="absolute right-0 z-20 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
@@ -744,7 +745,7 @@ export default function CustomerSyncTable() {
                       </button>
 
                       <div className="border-t border-gray-200 dark:border-gray-700"></div>
-                      
+
                       <button
                         onClick={() => {
                           setNhanhCustomFilterModalOpen(true);
@@ -763,7 +764,7 @@ export default function CustomerSyncTable() {
                       </button>
 
                       <div className="border-t border-gray-200 dark:border-gray-700"></div>
-                      
+
                       <button
                         onClick={async () => {
                           if (confirm("Reset pull progress and start from beginning?")) {
@@ -823,8 +824,8 @@ export default function CustomerSyncTable() {
 
               {shopifyPullDropdownOpen && (
                 <>
-                  <div 
-                    className="fixed inset-0 z-10" 
+                  <div
+                    className="fixed inset-0 z-10"
                     onClick={() => setShopifyPullDropdownOpen(false)}
                   />
                   <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
@@ -922,7 +923,7 @@ export default function CustomerSyncTable() {
 
                       {/* Reset & Custom Filter */}
                       <div className="border-t border-gray-200 dark:border-gray-700"></div>
-                      
+
                       <button
                         onClick={async () => {
                           if (confirm("Reset Shopify pull progress and start from beginning?")) {
@@ -990,8 +991,8 @@ export default function CustomerSyncTable() {
 
               {moreActionsOpen && (
                 <>
-                  <div 
-                    className="fixed inset-0 z-10" 
+                  <div
+                    className="fixed inset-0 z-10"
                     onClick={() => setMoreActionsOpen(false)}
                   />
                   <div className="absolute right-0 z-20 mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
@@ -1141,11 +1142,11 @@ export default function CustomerSyncTable() {
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
               </svg>
-              {filter === "all" ? "All Customers" : 
-               filter === "mapped" ? "Mapped" :
-               filter === "unmapped" ? "Unmapped" :
-               filter === "pending" ? "Pending" :
-               filter === "synced" ? "Synced" : "Failed"}
+              {filter === "all" ? "All Customers" :
+                filter === "mapped" ? "Mapped" :
+                  filter === "unmapped" ? "Unmapped" :
+                    filter === "pending" ? "Pending" :
+                      filter === "synced" ? "Synced" : "Failed"}
               <svg className={`h-4 w-4 transition-transform ${filterDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
@@ -1153,8 +1154,8 @@ export default function CustomerSyncTable() {
 
             {filterDropdownOpen && (
               <>
-                <div 
-                  className="fixed inset-0 z-10" 
+                <div
+                  className="fixed inset-0 z-10"
                   onClick={() => setFilterDropdownOpen(false)}
                 />
                 <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
@@ -1165,9 +1166,8 @@ export default function CustomerSyncTable() {
                         setPage(1);
                         setFilterDropdownOpen(false);
                       }}
-                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                        filter === "all" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
-                      }`}
+                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${filter === "all" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                        }`}
                     >
                       {filter === "all" && (
                         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
@@ -1183,9 +1183,8 @@ export default function CustomerSyncTable() {
                         setPage(1);
                         setFilterDropdownOpen(false);
                       }}
-                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                        filter === "mapped" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
-                      }`}
+                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${filter === "mapped" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                        }`}
                     >
                       {filter === "mapped" && (
                         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
@@ -1201,9 +1200,8 @@ export default function CustomerSyncTable() {
                         setPage(1);
                         setFilterDropdownOpen(false);
                       }}
-                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                        filter === "unmapped" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
-                      }`}
+                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${filter === "unmapped" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                        }`}
                     >
                       {filter === "unmapped" && (
                         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
@@ -1219,9 +1217,8 @@ export default function CustomerSyncTable() {
                         setPage(1);
                         setFilterDropdownOpen(false);
                       }}
-                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                        filter === "pending" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
-                      }`}
+                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${filter === "pending" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                        }`}
                     >
                       {filter === "pending" && (
                         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
@@ -1237,9 +1234,8 @@ export default function CustomerSyncTable() {
                         setPage(1);
                         setFilterDropdownOpen(false);
                       }}
-                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                        filter === "synced" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
-                      }`}
+                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${filter === "synced" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                        }`}
                     >
                       {filter === "synced" && (
                         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
@@ -1255,9 +1251,8 @@ export default function CustomerSyncTable() {
                         setPage(1);
                         setFilterDropdownOpen(false);
                       }}
-                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                        filter === "failed" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
-                      }`}
+                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${filter === "failed" ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                        }`}
                     >
                       {filter === "failed" && (
                         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
@@ -1285,11 +1280,11 @@ export default function CustomerSyncTable() {
                     checked={selectedCustomers.size === customers.length && customers.length > 0}
                     onChange={() => setSelectDropdownOpen(!selectDropdownOpen)}
                   />
-                  
+
                   {selectDropdownOpen && (
                     <>
-                      <div 
-                        className="fixed inset-0 z-10" 
+                      <div
+                        className="fixed inset-0 z-10"
                         onClick={() => setSelectDropdownOpen(false)}
                       />
                       <div className="absolute left-0 z-20 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
@@ -1441,46 +1436,35 @@ export default function CustomerSyncTable() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="flex justify-end gap-2">
+                      <div className="flex justify-end gap-1">
                         {!mapping || !mapping.shopifyCustomerId ? (
                           <button
                             onClick={() => openMappingModal(customer)}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-600"
+                            className="p-2 text-gray-500 hover:text-brand-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                            title="Map"
                           >
-                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                            </svg>
-                            Map
+                            <LinkIcon className="w-5 h-5" />
                           </button>
                         ) : (
                           <>
                             <button
                               onClick={() => handleDeleteMapping(customer.id)}
                               disabled={loading}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-danger-300 bg-white px-3 py-1.5 text-xs font-medium text-danger-700 hover:bg-danger-50 disabled:opacity-50 dark:border-danger-700 dark:bg-gray-800 dark:text-danger-400 dark:hover:bg-danger-900/20"
+                              className="p-2 text-gray-500 hover:text-error-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                              title="Delete mapping"
                             >
-                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                              Delete
+                              <TrashBinIcon className="w-5 h-5" />
                             </button>
                             <button
                               onClick={() => handleSync(customer.id)}
                               disabled={isSyncing}
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-success-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-success-600 disabled:opacity-50"
+                              className="p-2 text-gray-500 hover:text-success-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                              title="Sync"
                             >
                               {isSyncing ? (
-                                <>
-                                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-                                  Syncing...
-                                </>
+                                <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-success-500"></div>
                               ) : (
-                                <>
-                                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                  </svg>
-                                  Sync
-                                </>
+                                <SyncIcon className="w-5 h-5" />
                               )}
                             </button>
                           </>
@@ -1505,7 +1489,7 @@ export default function CustomerSyncTable() {
             </span>{" "}
             of <span className="font-medium text-gray-700 dark:text-gray-300">{total}</span> customers
           </div>
-          
+
           <div className="flex items-center gap-2">
             {/* Previous Button */}
             <button
@@ -1532,18 +1516,17 @@ export default function CustomerSyncTable() {
                     </span>
                   );
                 }
-                
+
                 const isActive = pageNum === page;
                 return (
                   <button
                     key={pageNum}
                     onClick={() => setPage(pageNum as number)}
                     disabled={loading || pulling}
-                    className={`min-w-[40px] rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      isActive
-                        ? "bg-brand-500 text-white hover:bg-brand-600"
-                        : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
-                    } disabled:cursor-not-allowed disabled:opacity-50`}
+                    className={`min-w-[40px] rounded-lg px-3 py-2 text-sm font-medium transition-colors ${isActive
+                      ? "bg-brand-500 text-white hover:bg-brand-600"
+                      : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
+                      } disabled:cursor-not-allowed disabled:opacity-50`}
                   >
                     {pageNum}
                   </button>
@@ -1606,80 +1589,80 @@ export default function CustomerSyncTable() {
           </h3>
 
           <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Filter Query
-                </label>
-                <input
-                  type="text"
-                  value={customFilterInput}
-                  onChange={(e) => setCustomFilterInput(e.target.value)}
-                  placeholder="e.g. state:ENABLED AND orders_count:>5"
-                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-500 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder-gray-400"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleCustomFilterSubmit();
-                    }
-                  }}
-                />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Filter Query
+              </label>
+              <input
+                type="text"
+                value={customFilterInput}
+                onChange={(e) => setCustomFilterInput(e.target.value)}
+                placeholder="e.g. state:ENABLED AND orders_count:>5"
+                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-500 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder-gray-400"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleCustomFilterSubmit();
+                  }
+                }}
+              />
+            </div>
 
-              <div className="rounded-lg bg-gray-50 p-4 dark:bg-gray-900">
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Common Filters:
-                </h4>
-                <div className="space-y-1 text-xs text-gray-600 dark:text-gray-400 font-mono">
-                  <div>• <span className="text-brand-600 dark:text-brand-400">state:ENABLED</span> - Customers with accounts</div>
-                  <div>• <span className="text-brand-600 dark:text-brand-400">orders_count:&gt;0</span> - Has at least 1 order</div>
-                  <div>• <span className="text-brand-600 dark:text-brand-400">email:*</span> - Has email address</div>
-                  <div>• <span className="text-brand-600 dark:text-brand-400">phone:*</span> - Has phone number</div>
-                  <div>• <span className="text-brand-600 dark:text-brand-400">tag:VIP</span> - Has "VIP" tag</div>
-                  <div>• <span className="text-brand-600 dark:text-brand-400">created_at:&gt;2024-01-01</span> - Created after date</div>
-                  <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-                    Combine with <span className="text-brand-600 dark:text-brand-400">AND</span> / <span className="text-brand-600 dark:text-brand-400">OR</span>
-                  </div>
+            <div className="rounded-lg bg-gray-50 p-4 dark:bg-gray-900">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Common Filters:
+              </h4>
+              <div className="space-y-1 text-xs text-gray-600 dark:text-gray-400 font-mono">
+                <div>• <span className="text-brand-600 dark:text-brand-400">state:ENABLED</span> - Customers with accounts</div>
+                <div>• <span className="text-brand-600 dark:text-brand-400">orders_count:&gt;0</span> - Has at least 1 order</div>
+                <div>• <span className="text-brand-600 dark:text-brand-400">email:*</span> - Has email address</div>
+                <div>• <span className="text-brand-600 dark:text-brand-400">phone:*</span> - Has phone number</div>
+                <div>• <span className="text-brand-600 dark:text-brand-400">tag:VIP</span> - Has "VIP" tag</div>
+                <div>• <span className="text-brand-600 dark:text-brand-400">created_at:&gt;2024-01-01</span> - Created after date</div>
+                <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                  Combine with <span className="text-brand-600 dark:text-brand-400">AND</span> / <span className="text-brand-600 dark:text-brand-400">OR</span>
                 </div>
               </div>
+            </div>
 
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => {
-                    if (customFilterInput.trim()) {
-                      handleSaveFilter(customFilterInput.trim());
-                      alert("Filter saved!");
-                    }
-                  }}
-                  disabled={!customFilterInput.trim()}
-                  className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                  </svg>
-                  Save Filter
-                </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  if (customFilterInput.trim()) {
+                    handleSaveFilter(customFilterInput.trim());
+                    alert("Filter saved!");
+                  }
+                }}
+                disabled={!customFilterInput.trim()}
+                className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                </svg>
+                Save Filter
+              </button>
 
-                <div className="flex-1"></div>
+              <div className="flex-1"></div>
 
-                <button
-                  onClick={() => {
-                    setCustomFilterModalOpen(false);
-                    setCustomFilterInput("");
-                  }}
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-                >
-                  Cancel
-                </button>
+              <button
+                onClick={() => {
+                  setCustomFilterModalOpen(false);
+                  setCustomFilterInput("");
+                }}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
 
-                <button
-                  onClick={handleCustomFilterSubmit}
-                  disabled={!customFilterInput.trim()}
-                  className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
-                >
-                  Pull Customers
-                </button>
-              </div>
+              <button
+                onClick={handleCustomFilterSubmit}
+                disabled={!customFilterInput.trim()}
+                className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+              >
+                Pull Customers
+              </button>
             </div>
           </div>
+        </div>
       </Modal>
 
       {/* Nhanh Advanced Filter Modal */}
@@ -1708,11 +1691,10 @@ export default function CustomerSyncTable() {
                 <select
                   value={nhanhFilterType || ""}
                   onChange={(e) => setNhanhFilterType(e.target.value ? parseInt(e.target.value) : null)}
-                  className={`h-11 w-full appearance-none rounded-lg border border-gray-300 px-4 py-2.5 pr-11 text-sm shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 ${
-                    nhanhFilterType
-                      ? "text-gray-800 dark:text-white/90"
-                      : "text-gray-400 dark:text-gray-400"
-                  }`}
+                  className={`h-11 w-full appearance-none rounded-lg border border-gray-300 px-4 py-2.5 pr-11 text-sm shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 ${nhanhFilterType
+                    ? "text-gray-800 dark:text-white/90"
+                    : "text-gray-400 dark:text-gray-400"
+                    }`}
                 >
                   <option value="" className="text-gray-700 dark:bg-gray-900 dark:text-gray-400">
                     All Types
@@ -1895,7 +1877,7 @@ export default function CustomerSyncTable() {
                   Clear Filters
                 </button>
               )}
-              
+
               <div className="flex items-center gap-3 ml-auto">
                 <button
                   onClick={() => {
@@ -1909,95 +1891,95 @@ export default function CustomerSyncTable() {
                   Cancel
                 </button>
 
-              <button
-                onClick={async () => {
-                  const filterMessage: string[] = [];
-                  if (nhanhFilterType) {
-                    const typeNames = { 1: "Khách lẻ", 2: "Khách sỉ", 3: "Đại lý" };
-                    filterMessage.push(`Type: ${typeNames[nhanhFilterType as keyof typeof typeNames]}`);
-                  }
-                  if (nhanhFilterDateFrom) filterMessage.push(`From: ${nhanhFilterDateFrom}`);
-                  if (nhanhFilterDateTo) filterMessage.push(`To: ${nhanhFilterDateTo}`);
-                  
-                  const message = filterMessage.length > 0 
-                    ? `Pull with filters:\n${filterMessage.join("\n")}`
-                    : "Pull all customers";
-                  
-                  if (!confirm(`${message}\n\n✅ Nhanh API supports these filters!\nFilters will be applied during pull.\n\nThis will run in background. Continue?`)) {
-                    return;
-                  }
-
-                  const handlePull = async (forceRestart: boolean) => {
-                    try {
-                      // Pass filters to API (no auto-save, only manual save via presets)
-                      const filters: any = {};
-                      if (nhanhFilterType) filters.type = nhanhFilterType;
-                      if (nhanhFilterDateFrom) filters.lastBoughtDateFrom = nhanhFilterDateFrom;
-                      if (nhanhFilterDateTo) filters.lastBoughtDateTo = nhanhFilterDateTo;
-                      if (forceRestart) filters.forceRestart = true;
-                      
-                      const response = await fetch("/api/nhanh/pull-customers-all", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(filters),
-                      });
-                      
-                      const result = await response.json();
-                      
-                      if (result.success) {
-                        // Close modal only on success
-                        setNhanhCustomFilterModalOpen(false);
-                        
-                        let alertMessage = "✅ Background pull started!\n\n";
-                        alertMessage += result.message + "\n\n";
-                        
-                        if (filterMessage.length > 0) {
-                          alertMessage += "🎯 Filters applied:\n";
-                          alertMessage += filterMessage.join("\n") + "\n\n";
-                          alertMessage += "Only matching customers will be pulled.";
-                        }
-                        
-                        alert(alertMessage);
-                        
-                        // Reset filters after successful start
-                        setNhanhFilterType(null);
-                        setNhanhFilterDateFrom("");
-                        setNhanhFilterDateTo("");
-                      } else {
-                        // Check if already running
-                        if (response.status === 409) {
-                          const retry = confirm(
-                            "⚠️ Pull is already running with these filters!\n\n" +
-                            "Options:\n" +
-                            "• Click OK to FORCE RESTART from beginning\n" +
-                            "• Click Cancel to wait for current pull to finish\n\n" +
-                            "Note: Force restart will lose current progress."
-                          );
-                          
-                          if (retry) {
-                            await handlePull(true);
-                          } else {
-                            // User cancelled, close modal
-                            setNhanhCustomFilterModalOpen(false);
-                          }
-                        } else {
-                          setNhanhCustomFilterModalOpen(false);
-                          throw new Error(result.error || "Failed to start pull");
-                        }
-                      }
-                    } catch (error: any) {
-                      if (!error.message?.includes("already running")) {
-                        alert("Failed to start pull: " + error.message);
-                      }
+                <button
+                  onClick={async () => {
+                    const filterMessage: string[] = [];
+                    if (nhanhFilterType) {
+                      const typeNames = { 1: "Khách lẻ", 2: "Khách sỉ", 3: "Đại lý" };
+                      filterMessage.push(`Type: ${typeNames[nhanhFilterType as keyof typeof typeNames]}`);
                     }
-                  };
-                  
-                  await handlePull(false);
-                }}
-                className="h-11 rounded-lg bg-brand-500 px-5 text-sm font-medium text-white shadow-theme-xs transition-colors hover:bg-brand-600"
-              >
-                Pull Customers
-              </button>
+                    if (nhanhFilterDateFrom) filterMessage.push(`From: ${nhanhFilterDateFrom}`);
+                    if (nhanhFilterDateTo) filterMessage.push(`To: ${nhanhFilterDateTo}`);
+
+                    const message = filterMessage.length > 0
+                      ? `Pull with filters:\n${filterMessage.join("\n")}`
+                      : "Pull all customers";
+
+                    if (!confirm(`${message}\n\n✅ Nhanh API supports these filters!\nFilters will be applied during pull.\n\nThis will run in background. Continue?`)) {
+                      return;
+                    }
+
+                    const handlePull = async (forceRestart: boolean) => {
+                      try {
+                        // Pass filters to API (no auto-save, only manual save via presets)
+                        const filters: any = {};
+                        if (nhanhFilterType) filters.type = nhanhFilterType;
+                        if (nhanhFilterDateFrom) filters.lastBoughtDateFrom = nhanhFilterDateFrom;
+                        if (nhanhFilterDateTo) filters.lastBoughtDateTo = nhanhFilterDateTo;
+                        if (forceRestart) filters.forceRestart = true;
+
+                        const response = await fetch("/api/nhanh/pull-customers-all", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(filters),
+                        });
+
+                        const result = await response.json();
+
+                        if (result.success) {
+                          // Close modal only on success
+                          setNhanhCustomFilterModalOpen(false);
+
+                          let alertMessage = "✅ Background pull started!\n\n";
+                          alertMessage += result.message + "\n\n";
+
+                          if (filterMessage.length > 0) {
+                            alertMessage += "🎯 Filters applied:\n";
+                            alertMessage += filterMessage.join("\n") + "\n\n";
+                            alertMessage += "Only matching customers will be pulled.";
+                          }
+
+                          alert(alertMessage);
+
+                          // Reset filters after successful start
+                          setNhanhFilterType(null);
+                          setNhanhFilterDateFrom("");
+                          setNhanhFilterDateTo("");
+                        } else {
+                          // Check if already running
+                          if (response.status === 409) {
+                            const retry = confirm(
+                              "⚠️ Pull is already running with these filters!\n\n" +
+                              "Options:\n" +
+                              "• Click OK to FORCE RESTART from beginning\n" +
+                              "• Click Cancel to wait for current pull to finish\n\n" +
+                              "Note: Force restart will lose current progress."
+                            );
+
+                            if (retry) {
+                              await handlePull(true);
+                            } else {
+                              // User cancelled, close modal
+                              setNhanhCustomFilterModalOpen(false);
+                            }
+                          } else {
+                            setNhanhCustomFilterModalOpen(false);
+                            throw new Error(result.error || "Failed to start pull");
+                          }
+                        }
+                      } catch (error: any) {
+                        if (!error.message?.includes("already running")) {
+                          alert("Failed to start pull: " + error.message);
+                        }
+                      }
+                    };
+
+                    await handlePull(false);
+                  }}
+                  className="h-11 rounded-lg bg-brand-500 px-5 text-sm font-medium text-white shadow-theme-xs transition-colors hover:bg-brand-600"
+                >
+                  Pull Customers
+                </button>
               </div>
             </div>
           </div>

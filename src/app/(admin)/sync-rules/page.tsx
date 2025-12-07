@@ -74,16 +74,16 @@ export default function SyncRulesPage() {
                 setIsModalOpen(false);
                 fetchRules();
             } else {
-                alert(data.error || "Lỗi khi lưu rule");
+                alert(data.error || "Error saving rule");
             }
         } catch (error) {
             console.error("Error saving rule:", error);
-            alert("Lỗi khi lưu rule");
+            alert("Error saving rule");
         }
     };
 
     const handleDelete = async (ruleId: string) => {
-        if (!confirm("Bạn có chắc muốn xóa rule này?")) return;
+        if (!confirm("Are you sure you want to delete this rule?")) return;
 
         try {
             const res = await fetch(`/api/sync/rules/${ruleId}`, {
@@ -93,7 +93,7 @@ export default function SyncRulesPage() {
             if (data.success) {
                 fetchRules();
             } else {
-                alert(data.error || "Lỗi khi xóa rule");
+                alert(data.error || "Error deleting rule");
             }
         } catch (error) {
             console.error("Error deleting rule:", error);
@@ -127,29 +127,29 @@ export default function SyncRulesPage() {
                         Sync Rules & Automation
                     </h1>
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                        Tạo và quản lý các quy tắc tự động hóa cho sync sản phẩm và khách hàng
+                        Create and manage automation rules for product and customer sync
                     </p>
                 </div>
                 <Button onClick={handleCreateNew}>
-                    + Tạo Rule Mới
+                    + Create New Rule
                 </Button>
             </div>
 
             {/* Stats */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Tổng Rules</p>
+                <div className="p-4 rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Total Rules</p>
                     <p className="text-2xl font-bold text-gray-800 dark:text-white">{rules.length}</p>
                 </div>
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Đang Bật</p>
+                <div className="p-4 rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Active</p>
                     <p className="text-2xl font-bold text-green-600">{rules.filter(r => r.enabled).length}</p>
                 </div>
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
+                <div className="p-4 rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
                     <p className="text-sm text-gray-500 dark:text-gray-400">Product Rules</p>
                     <p className="text-2xl font-bold text-blue-600">{rules.filter(r => r.targetType === "PRODUCT").length}</p>
                 </div>
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
+                <div className="p-4 rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
                     <p className="text-sm text-gray-500 dark:text-gray-400">Customer Rules</p>
                     <p className="text-2xl font-bold text-purple-600">{rules.filter(r => r.targetType === "CUSTOMER").length}</p>
                 </div>

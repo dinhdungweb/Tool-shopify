@@ -44,23 +44,23 @@ interface RuleBuilderProps {
 
 // Field options by target type
 const PRODUCT_FIELDS = [
-    { value: "inventory", label: "Tồn kho" },
-    { value: "price", label: "Giá" },
-    { value: "priceChange", label: "Thay đổi giá (%)" },
-    { value: "category", label: "Danh mục" },
-    { value: "brand", label: "Thương hiệu" },
+    { value: "inventory", label: "Inventory" },
+    { value: "price", label: "Price" },
+    { value: "priceChange", label: "Price Change (%)" },
+    { value: "category", label: "Category" },
+    { value: "brand", label: "Brand" },
     { value: "sku", label: "SKU" },
-    { value: "syncStatus", label: "Trạng thái sync" },
-    { value: "lastSyncedDays", label: "Ngày kể từ sync cuối" },
+    { value: "syncStatus", label: "Sync Status" },
+    { value: "lastSyncedDays", label: "Days Since Last Sync" },
 ];
 
 const CUSTOMER_FIELDS = [
-    { value: "totalSpent", label: "Tổng chi tiêu" },
-    { value: "ordersCount", label: "Số đơn hàng" },
-    { value: "hasPhone", label: "Có số điện thoại" },
-    { value: "hasEmail", label: "Có email" },
-    { value: "syncStatus", label: "Trạng thái sync" },
-    { value: "lastSyncedDays", label: "Ngày kể từ sync cuối" },
+    { value: "totalSpent", label: "Total Spent" },
+    { value: "ordersCount", label: "Order Count" },
+    { value: "hasPhone", label: "Has Phone" },
+    { value: "hasEmail", label: "Has Email" },
+    { value: "syncStatus", label: "Sync Status" },
+    { value: "lastSyncedDays", label: "Days Since Last Sync" },
 ];
 
 const OPERATORS = [
@@ -70,27 +70,27 @@ const OPERATORS = [
     { value: "<=", label: "≤" },
     { value: ">", label: ">" },
     { value: ">=", label: "≥" },
-    { value: "contains", label: "Chứa" },
-    { value: "startsWith", label: "Bắt đầu với" },
+    { value: "contains", label: "Contains" },
+    { value: "startsWith", label: "Starts With" },
 ];
 
 const ACTION_TYPES = [
-    { value: "SKIP_SYNC", label: "Bỏ qua sync", hasParams: false },
-    { value: "ADD_TAG", label: "Thêm tag", hasParams: true, paramKey: "tag" },
-    { value: "REMOVE_TAG", label: "Xóa tag", hasParams: true, paramKey: "tag" },
-    { value: "REQUIRE_APPROVAL", label: "Yêu cầu duyệt", hasParams: true, paramKey: "reason" },
-    { value: "LOG_WARNING", label: "Ghi cảnh báo", hasParams: true, paramKey: "message" },
+    { value: "SKIP_SYNC", label: "Skip Sync", hasParams: false },
+    { value: "ADD_TAG", label: "Add Tag", hasParams: true, paramKey: "tag" },
+    { value: "REMOVE_TAG", label: "Remove Tag", hasParams: true, paramKey: "tag" },
+    { value: "REQUIRE_APPROVAL", label: "Require Approval", hasParams: true, paramKey: "reason" },
+    { value: "LOG_WARNING", label: "Log Warning", hasParams: true, paramKey: "message" },
 ];
 
 const TARGET_TYPE_OPTIONS = [
-    { value: "PRODUCT", label: "Sản phẩm" },
-    { value: "CUSTOMER", label: "Khách hàng" },
-    { value: "ALL", label: "Cả hai" },
+    { value: "PRODUCT", label: "Product" },
+    { value: "CUSTOMER", label: "Customer" },
+    { value: "ALL", label: "Both" },
 ];
 
 const CONDITION_OPERATOR_OPTIONS = [
-    { value: "AND", label: "Tất cả (AND)" },
-    { value: "OR", label: "Bất kỳ (OR)" },
+    { value: "AND", label: "All (AND)" },
+    { value: "OR", label: "Any (OR)" },
 ];
 
 // Sortable Item Component
@@ -205,7 +205,7 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
     // Save handler
     const handleSave = async () => {
         if (!name.trim()) {
-            alert("Vui lòng nhập tên rule");
+            alert("Please enter a rule name");
             return;
         }
 
@@ -228,22 +228,22 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
     return (
         <div className="p-6">
             <h2 className="text-xl font-bold mb-6 text-gray-800 dark:text-white">
-                {rule ? "Chỉnh sửa Rule" : "Tạo Rule Mới"}
+                {rule ? "Edit Rule" : "Create New Rule"}
             </h2>
 
             {/* Basic Info */}
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 mb-6">
                 <div>
-                    <Label>Tên Rule *</Label>
+                    <Label>Rule Name *</Label>
                     <Input
                         type="text"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        placeholder="VD: Low Stock Alert"
+                        placeholder="e.g. Low Stock Alert"
                     />
                 </div>
                 <div>
-                    <Label>Áp dụng cho</Label>
+                    <Label>Apply To</Label>
                     <Select
                         options={TARGET_TYPE_OPTIONS}
                         value={targetType}
@@ -251,12 +251,12 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
                     />
                 </div>
                 <div className="sm:col-span-2">
-                    <Label>Mô tả</Label>
+                    <Label>Description</Label>
                     <Input
                         type="text"
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
-                        placeholder="Mô tả ngắn về rule này"
+                        placeholder="Brief description of this rule"
                     />
                 </div>
             </div>
@@ -265,7 +265,7 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
             <div className="mb-6">
                 <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-white">
-                        Điều kiện (Conditions)
+                        Conditions
                     </h3>
                     <Select
                         options={CONDITION_OPERATOR_OPTIONS}
@@ -297,7 +297,7 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
                                             type="text"
                                             value={condition.value}
                                             onChange={(e) => updateCondition(condition.id, "value", e.target.value)}
-                                            placeholder="Giá trị"
+                                            placeholder="Value"
                                         />
                                     </div>
                                     <button
@@ -319,14 +319,14 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
                     onClick={addCondition}
                     className="mt-2 text-sm text-brand-500 hover:text-brand-600"
                 >
-                    + Thêm điều kiện
+                    + Add Condition
                 </button>
             </div>
 
             {/* Actions */}
             <div className="mb-6">
                 <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-white">
-                    Hành động (Actions)
+                    Actions
                 </h3>
 
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleActionDragEnd}>
@@ -375,13 +375,13 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
                     onClick={addAction}
                     className="mt-2 text-sm text-brand-500 hover:text-brand-600"
                 >
-                    + Thêm hành động
+                    + Add Action
                 </button>
             </div>
 
             {/* Priority */}
             <div className="mb-6">
-                <Label>Độ ưu tiên (priority cao hơn = chạy trước)</Label>
+                <Label>Priority (higher runs first)</Label>
                 <Input
                     type="number"
                     value={priority}
@@ -393,10 +393,10 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
             {/* Buttons */}
             <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <Button variant="outline" onClick={onCancel}>
-                    Hủy
+                    Cancel
                 </Button>
                 <Button onClick={handleSave} disabled={saving}>
-                    {saving ? "Đang lưu..." : "Lưu Rule"}
+                    {saving ? "Saving..." : "Save Rule"}
                 </Button>
             </div>
         </div>

@@ -13,6 +13,7 @@ import { NhanhProduct } from "@prisma/client";
 import { useToast } from "../ui/toast/ToastContainer";
 import { useJobMonitor } from "@/hooks/useJobMonitor";
 import { exportToCSV } from "@/lib/export-utils";
+import { TrashBinIcon, SyncIcon, LinkIcon } from "@/icons";
 
 export default function ProductSyncTable() {
   const { showToast } = useToast();
@@ -72,12 +73,12 @@ export default function ProductSyncTable() {
   async function loadData() {
     try {
       setLoading(true);
-      
+
       const params: any = { page, limit };
       if (keyword && keyword.trim()) {
         params.keyword = keyword.trim();
       }
-      
+
       if (filter === "mapped") {
         params.mappingStatus = "mapped";
       } else if (filter === "unmapped") {
@@ -85,9 +86,9 @@ export default function ProductSyncTable() {
       } else if (filter !== "all") {
         params.syncStatus = filter;
       }
-      
+
       const shopifyData = await productSyncClient.getLocalShopifyProducts(params);
-      
+
       setProducts(shopifyData.products);
       setTotal(shopifyData.total);
       setTotalPages(shopifyData.totalPages);
@@ -144,7 +145,7 @@ export default function ProductSyncTable() {
         },
       });
       const result = await response.json();
-      
+
       if (result.success) {
         alert(result.message + "\n\n✅ Progress reset complete. You can now pull from beginning.");
       } else {
@@ -185,7 +186,7 @@ export default function ProductSyncTable() {
         method: "POST",
       });
       const result = await response.json();
-      
+
       if (result.success) {
         alert(result.message);
       } else {
@@ -204,18 +205,18 @@ export default function ProductSyncTable() {
 
     try {
       setLoading(true);
-      
+
       const result = await syncClient.autoMatchProducts(false);
-      
+
       await loadData();
-      
+
       const details = result.details.filter((d: any) => d.status === "matched");
       const detailsText = details.length > 0 && details.length <= 10
         ? "\n\nMatched:\n" + details.map((d: any) => `- ${d.nhanhProduct.name} (${d.nhanhProduct.sku}) → ${d.shopifyProduct.title} (${d.shopifyProduct.sku})`).join("\n")
         : "";
-      
+
       const durationText = result.duration ? `\nDuration: ${result.duration}` : "";
-      
+
       alert(
         `Auto-match completed!${durationText}\n\nTotal: ${result.total}\nMatched: ${result.matched}\nSkipped: ${result.skipped}\nFailed: ${result.failed}${detailsText}`
       );
@@ -252,10 +253,10 @@ export default function ProductSyncTable() {
 
     try {
       setLoading(true);
-      
+
       // Use background sync API
       const result = await productSyncClient.bulkSyncProducts(mappingIds);
-      
+
       // Show notification with link to Job Tracking
       setJobNotification(`Syncing ${mappingIds.length} products in background...`);
       setSelectedProducts(new Set());
@@ -270,7 +271,7 @@ export default function ProductSyncTable() {
   async function handleSyncAllMapped() {
     try {
       setLoading(true);
-      
+
       // Get all mapped products
       const allMappings = await productSyncClient.getProductMappings({ page: 1, limit: 10000 });
       const mappingIds = allMappings.mappings
@@ -299,7 +300,7 @@ export default function ProductSyncTable() {
       }
 
       const result = await productSyncClient.bulkSyncProducts(mappingIds);
-      
+
       // Show notification with link to Job Tracking
       setJobNotification(`Syncing ALL ${mappingIds.length} products in background...`);
     } catch (error: any) {
@@ -313,7 +314,7 @@ export default function ProductSyncTable() {
   async function handleRetryFailed() {
     try {
       setLoading(true);
-      
+
       // Get all failed mappings
       const allMappings = await productSyncClient.getProductMappings({ page: 1, limit: 10000, status: "FAILED" });
       const mappingIds = allMappings.mappings.map((m: any) => m.id);
@@ -330,7 +331,7 @@ export default function ProductSyncTable() {
       }
 
       const result = await productSyncClient.bulkSyncProducts(mappingIds);
-      
+
       // Show notification with link to Job Tracking
       setJobNotification(`Retrying ${mappingIds.length} failed products...`);
     } catch (error: any) {
@@ -426,9 +427,9 @@ export default function ProductSyncTable() {
       const response = await fetch(`/api/sync/product-mapping?id=${mapping.id}`, {
         method: "DELETE",
       });
-      
+
       const result = await response.json();
-      
+
       if (result.success) {
         showToast("Mapping deleted successfully!", "success");
         await loadData();
@@ -453,32 +454,32 @@ export default function ProductSyncTable() {
   function getPageNumbers() {
     const pages: (number | string)[] = [];
     const maxVisible = 7;
-    
+
     if (totalPages <= maxVisible) {
       for (let i = 1; i <= totalPages; i++) {
         pages.push(i);
       }
     } else {
       pages.push(1);
-      
+
       if (page > 3) {
         pages.push("...");
       }
-      
+
       const start = Math.max(2, page - 1);
       const end = Math.min(totalPages - 1, page + 1);
-      
+
       for (let i = start; i <= end; i++) {
         pages.push(i);
       }
-      
+
       if (page < totalPages - 2) {
         pages.push("...");
       }
-      
+
       pages.push(totalPages);
     }
-    
+
     return pages;
   }
 
@@ -557,8 +558,8 @@ export default function ProductSyncTable() {
 
               {pullDropdownOpen && (
                 <>
-                  <div 
-                    className="fixed inset-0 z-10" 
+                  <div
+                    className="fixed inset-0 z-10"
                     onClick={() => setPullDropdownOpen(false)}
                   />
                   <div className="absolute left-0 z-20 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
@@ -636,7 +637,7 @@ export default function ProductSyncTable() {
                       </button>
 
                       <div className="border-t border-gray-200 dark:border-gray-700"></div>
-                      
+
                       <button
                         onClick={() => {
                           handleResetPullProgress();
@@ -686,8 +687,8 @@ export default function ProductSyncTable() {
 
               {nhanhPullDropdownOpen && (
                 <>
-                  <div 
-                    className="fixed inset-0 z-10" 
+                  <div
+                    className="fixed inset-0 z-10"
                     onClick={() => setNhanhPullDropdownOpen(false)}
                   />
                   <div className="absolute left-0 z-20 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
@@ -711,7 +712,7 @@ export default function ProductSyncTable() {
                       </button>
 
                       <div className="border-t border-gray-200 dark:border-gray-700"></div>
-                      
+
                       <button
                         onClick={() => {
                           handleResetNhanhPullProgress();
@@ -752,8 +753,8 @@ export default function ProductSyncTable() {
 
               {moreActionsOpen && (
                 <>
-                  <div 
-                    className="fixed inset-0 z-10" 
+                  <div
+                    className="fixed inset-0 z-10"
                     onClick={() => setMoreActionsOpen(false)}
                   />
                   <div className="absolute right-0 z-20 mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
@@ -897,11 +898,11 @@ export default function ProductSyncTable() {
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
               </svg>
-              {filter === "all" ? "All" : 
-               filter === "mapped" ? "Mapped" :
-               filter === "unmapped" ? "Unmapped" :
-               filter === "pending" ? "Pending" :
-               filter === "synced" ? "Synced" : "Failed"}
+              {filter === "all" ? "All" :
+                filter === "mapped" ? "Mapped" :
+                  filter === "unmapped" ? "Unmapped" :
+                    filter === "pending" ? "Pending" :
+                      filter === "synced" ? "Synced" : "Failed"}
               <svg className={`h-4 w-4 transition-transform ${filterDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
@@ -909,8 +910,8 @@ export default function ProductSyncTable() {
 
             {filterDropdownOpen && (
               <>
-                <div 
-                  className="fixed inset-0 z-10" 
+                <div
+                  className="fixed inset-0 z-10"
                   onClick={() => setFilterDropdownOpen(false)}
                 />
                 <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
@@ -930,9 +931,8 @@ export default function ProductSyncTable() {
                           setPage(1);
                           setFilterDropdownOpen(false);
                         }}
-                        className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                          filter === item.value ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
-                        }`}
+                        className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${filter === item.value ? "text-brand-700 dark:text-brand-400" : "text-gray-700 dark:text-gray-300"
+                          }`}
                       >
                         {filter === item.value && (
                           <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
@@ -961,11 +961,11 @@ export default function ProductSyncTable() {
                     checked={selectedProducts.size === products.length && products.length > 0}
                     onChange={() => setSelectDropdownOpen(!selectDropdownOpen)}
                   />
-                  
+
                   {selectDropdownOpen && (
                     <>
-                      <div 
-                        className="fixed inset-0 z-10" 
+                      <div
+                        className="fixed inset-0 z-10"
                         onClick={() => setSelectDropdownOpen(false)}
                       />
                       <div className="absolute left-0 z-20 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
@@ -1109,47 +1109,35 @@ export default function ProductSyncTable() {
                       />
                     </TableCell>
                     <TableCell>
-                      <div className="flex justify-end gap-2">
+                      <div className="flex justify-end gap-1">
                         {!mapping || !mapping.nhanhProductId ? (
                           <button
                             onClick={() => openMappingModal(product)}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-600"
+                            className="p-2 text-gray-500 hover:text-brand-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                            title="Map"
                           >
-                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                            </svg>
-                            Map
+                            <LinkIcon className="w-5 h-5" />
                           </button>
                         ) : (
                           <>
                             <button
                               onClick={() => handleDeleteMapping(product.id)}
                               disabled={loading}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-danger-300 bg-white px-3 py-1.5 text-xs font-medium text-danger-700 hover:bg-danger-50 disabled:opacity-50 dark:border-danger-700 dark:bg-gray-800 dark:text-danger-400 dark:hover:bg-danger-900/20"
+                              className="p-2 text-gray-500 hover:text-error-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                              title="Delete mapping"
                             >
-                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                              Delete
+                              <TrashBinIcon className="w-5 h-5" />
                             </button>
                             <button
                               onClick={() => handleSync(product.id)}
                               disabled={isSyncing}
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-success-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-success-600 disabled:opacity-50"
-                              title="Sync inventory from Nhanh to Shopify"
+                              className="p-2 text-gray-500 hover:text-success-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                              title="Sync inventory"
                             >
                               {isSyncing ? (
-                                <>
-                                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-                                  Syncing...
-                                </>
+                                <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-success-500"></div>
                               ) : (
-                                <>
-                                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                  </svg>
-                                  Sync
-                                </>
+                                <SyncIcon className="w-5 h-5" />
                               )}
                             </button>
                           </>
@@ -1165,89 +1153,92 @@ export default function ProductSyncTable() {
       </div>
 
       {/* Pagination */}
-      {products.length > 0 && totalPages > 0 && (
-        <div className="flex flex-col gap-4 border-t border-gray-200 px-6 py-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-gray-500 dark:text-gray-400">
-            Showing <span className="font-medium text-gray-700 dark:text-gray-300">{(page - 1) * limit + 1}</span> to{" "}
-            <span className="font-medium text-gray-700 dark:text-gray-300">
-              {Math.min(page * limit, total)}
-            </span>{" "}
-            of <span className="font-medium text-gray-700 dark:text-gray-300">{total}</span> products
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setPage(Math.max(1, page - 1))}
-              disabled={page === 1 || loading || pulling}
-              className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              Previous
-            </button>
+      {
+        products.length > 0 && totalPages > 0 && (
+          <div className="flex flex-col gap-4 border-t border-gray-200 px-6 py-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-gray-500 dark:text-gray-400">
+              Showing <span className="font-medium text-gray-700 dark:text-gray-300">{(page - 1) * limit + 1}</span> to{" "}
+              <span className="font-medium text-gray-700 dark:text-gray-300">
+                {Math.min(page * limit, total)}
+              </span>{" "}
+              of <span className="font-medium text-gray-700 dark:text-gray-300">{total}</span> products
+            </div>
 
-            <div className="hidden items-center gap-1 sm:flex">
-              {getPageNumbers().map((pageNum, index) => {
-                if (pageNum === "...") {
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage(Math.max(1, page - 1))}
+                disabled={page === 1 || loading || pulling}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Previous
+              </button>
+
+              <div className="hidden items-center gap-1 sm:flex">
+                {getPageNumbers().map((pageNum, index) => {
+                  if (pageNum === "...") {
+                    return (
+                      <span
+                        key={`ellipsis-${index}`}
+                        className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400"
+                      >
+                        ...
+                      </span>
+                    );
+                  }
+
+                  const isActive = pageNum === page;
                   return (
-                    <span
-                      key={`ellipsis-${index}`}
-                      className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400"
-                    >
-                      ...
-                    </span>
-                  );
-                }
-                
-                const isActive = pageNum === page;
-                return (
-                  <button
-                    key={pageNum}
-                    onClick={() => setPage(pageNum as number)}
-                    disabled={loading || pulling}
-                    className={`min-w-[40px] rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      isActive
+                    <button
+                      key={pageNum}
+                      onClick={() => setPage(pageNum as number)}
+                      disabled={loading || pulling}
+                      className={`min-w-[40px] rounded-lg px-3 py-2 text-sm font-medium transition-colors ${isActive
                         ? "bg-brand-500 text-white hover:bg-brand-600"
                         : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
-                    } disabled:cursor-not-allowed disabled:opacity-50`}
-                  >
-                    {pageNum}
-                  </button>
-                );
-              })}
-            </div>
+                        } disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
 
-            <div className="flex items-center gap-2 sm:hidden">
-              <span className="text-sm text-gray-700 dark:text-gray-300">
-                Trang {page} / {totalPages}
-              </span>
-            </div>
+              <div className="flex items-center gap-2 sm:hidden">
+                <span className="text-sm text-gray-700 dark:text-gray-300">
+                  Trang {page} / {totalPages}
+                </span>
+              </div>
 
-            <button
-              onClick={() => setPage(page + 1)}
-              disabled={page >= totalPages || loading || pulling}
-              className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
-            >
-              Next
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
+              <button
+                onClick={() => setPage(page + 1)}
+                disabled={page >= totalPages || loading || pulling}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
+              >
+                Next
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Mapping Modal */}
-      {currentProduct && (
-        <ProductMappingModal
-          isOpen={mappingModalOpen}
-          onClose={() => setMappingModalOpen(false)}
-          product={currentProduct}
-          existingMapping={mappings.get(currentProduct.id)}
-          onMappingComplete={handleMappingComplete}
-        />
-      )}
+      {
+        currentProduct && (
+          <ProductMappingModal
+            isOpen={mappingModalOpen}
+            onClose={() => setMappingModalOpen(false)}
+            product={currentProduct}
+            existingMapping={mappings.get(currentProduct.id)}
+            onMappingComplete={handleMappingComplete}
+          />
+        )
+      }
 
       {/* Auto-Sync Settings Modal */}
       <GlobalProductAutoSyncSettings
@@ -1255,6 +1246,6 @@ export default function ProductSyncTable() {
         onClose={() => setAutoSyncModalOpen(false)}
         syncedCount={syncedCount}
       />
-    </div>
+    </div >
   );
 }

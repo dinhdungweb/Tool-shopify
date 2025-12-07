@@ -57,6 +57,7 @@ import TagIcon from "./tag.svg";
 import ClockIcon from "./clock.svg";
 import SettingsIcon from "./settings.svg";
 import InfoCircleIcon from "./info-circle.svg";
+import LinkIcon from "./link.svg";
 
 export {
   DownloadIcon,
@@ -118,4 +119,5 @@ export {
   ClockIcon,
   SettingsIcon,
   InfoCircleIcon,
+  LinkIcon,
 };

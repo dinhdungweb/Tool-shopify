@@ -1,5 +1,6 @@
 "use client";
 import Badge from "@/components/ui/badge/Badge";
+import { PencilIcon, TrashBinIcon } from "@/icons";
 
 interface SyncRule {
     id: string;
@@ -33,9 +34,9 @@ export default function RuleList({
 }: RuleListProps) {
     const getTargetBadge = (type: string) => {
         const config: Record<string, { color: "primary" | "info" | "light"; label: string }> = {
-            PRODUCT: { color: "primary", label: "Sản phẩm" },
-            CUSTOMER: { color: "info", label: "Khách hàng" },
-            ALL: { color: "light", label: "Tất cả" },
+            PRODUCT: { color: "primary", label: "Product" },
+            CUSTOMER: { color: "info", label: "Customer" },
+            ALL: { color: "light", label: "All" },
         };
         const item = config[type] || config.ALL;
         return (
@@ -46,14 +47,14 @@ export default function RuleList({
     };
 
     const getActionSummary = (actions: any[]) => {
-        if (!actions || actions.length === 0) return "Không có hành động";
+        if (!actions || actions.length === 0) return "No actions";
         const actionLabels: Record<string, string> = {
-            SKIP_SYNC: "Bỏ qua sync",
-            ADD_TAG: "Thêm tag",
-            REMOVE_TAG: "Xóa tag",
-            REQUIRE_APPROVAL: "Cần duyệt",
-            LOG_WARNING: "Ghi log",
-            SET_INVENTORY: "Set tồn kho",
+            SKIP_SYNC: "Skip sync",
+            ADD_TAG: "Add tag",
+            REMOVE_TAG: "Remove tag",
+            REQUIRE_APPROVAL: "Require approval",
+            LOG_WARNING: "Log warning",
+            SET_INVENTORY: "Set inventory",
         };
         return actions.map((a) => actionLabels[a.type] || a.type).join(", ");
     };
@@ -62,7 +63,7 @@ export default function RuleList({
         return (
             <div className="rounded-xl border border-gray-200 bg-white p-8 text-center dark:border-gray-800 dark:bg-white/[0.03]">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500 mx-auto"></div>
-                <p className="mt-4 text-gray-500 dark:text-gray-400">Đang tải...</p>
+                <p className="mt-4 text-gray-500 dark:text-gray-400">Loading...</p>
             </div>
         );
     }
@@ -71,7 +72,7 @@ export default function RuleList({
         return (
             <div className="rounded-xl border border-gray-200 bg-white p-8 text-center dark:border-gray-800 dark:bg-white/[0.03]">
                 <p className="text-gray-500 dark:text-gray-400 mb-4">
-                    Chưa có rule nào. Tạo rule đầu tiên để bắt đầu tự động hóa.
+                    No rules yet. Create your first rule to start automating.
                 </p>
             </div>
         );
@@ -84,22 +85,22 @@ export default function RuleList({
                     <thead>
                         <tr className="border-b border-gray-100 dark:border-gray-800">
                             <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                                Trạng thái
+                                Status
                             </th>
                             <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                                Tên Rule
+                                Rule Name
                             </th>
                             <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                                Áp dụng cho
+                                Target
                             </th>
                             <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                                Hành động
+                                Actions
                             </th>
                             <th className="px-5 py-3.5 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                                Đã kích hoạt
+                                Triggered
                             </th>
                             <th className="px-5 py-3.5 text-right text-sm font-medium text-gray-500 dark:text-gray-400">
-                                Thao tác
+                                Actions
                             </th>
                         </tr>
                     </thead>
@@ -131,21 +132,23 @@ export default function RuleList({
                                     {getActionSummary(rule.actions)}
                                 </td>
                                 <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300">
-                                    {rule.triggerCount} lần
+                                    {rule.triggerCount} times
                                 </td>
                                 <td className="px-5 py-4 text-right">
-                                    <div className="flex items-center justify-end gap-2">
+                                    <div className="flex items-center justify-end gap-1">
                                         <button
                                             onClick={() => onEdit(rule)}
-                                            className="px-3 py-1.5 text-sm font-medium text-brand-500 hover:text-brand-600 rounded-md hover:bg-brand-50 dark:hover:bg-brand-500/10"
+                                            className="p-2 text-gray-500 hover:text-brand-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                            title="Edit"
                                         >
-                                            Sửa
+                                            <PencilIcon className="w-5 h-5" />
                                         </button>
                                         <button
                                             onClick={() => onDelete(rule.id)}
-                                            className="px-3 py-1.5 text-sm font-medium text-error-500 hover:text-error-600 rounded-md hover:bg-error-50 dark:hover:bg-error-500/10"
+                                            className="p-2 text-gray-500 hover:text-error-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                            title="Delete"
                                         >
-                                            Xóa
+                                            <TrashBinIcon className="w-5 h-5" />
                                         </button>
                                     </div>
                                 </td>
