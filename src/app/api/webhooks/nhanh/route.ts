@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { handleInventoryWebhook } from "./handlers/inventory";
+import { handleCustomerWebhook } from "./handlers/customer";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -9,6 +11,18 @@ export const maxDuration = 60;
  */
 export async function POST(request: NextRequest) {
   try {
+    // Security: Verify webhook token (optional but recommended)
+    const authHeader = request.headers.get("authorization");
+    const expectedToken = process.env.NHANH_WEBHOOK_TOKEN;
+    
+    if (expectedToken && authHeader !== `Bearer ${expectedToken}`) {
+      console.error("❌ Invalid webhook token");
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
     // Parse webhook payload
     const text = await request.text();
     let payload: any = {};
@@ -26,7 +40,7 @@ export async function POST(request: NextRequest) {
     }
 
     const event = payload.event;
-    console.log(`📨 Received Nhanh webhook: ${event}`);
+    console.log(`📨 Received Nhanh webhook: ${event} ${expectedToken ? "(verified)" : ""}`);
 
     // Handle webhooksEnabled test
     if (event === "webhooksEnabled") {
@@ -98,28 +112,16 @@ export async function GET() {
   });
 }
 
-// Handler functions - delegate to existing endpoints
-async function handleInventoryChange(request: NextRequest, payload: any) {
-  // Forward to inventory webhook
-  const url = new URL("/api/webhooks/nhanh/inventory", request.url);
-  return fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  }).then(res => res.json()).then(data => NextResponse.json(data));
+// Handler functions - direct execution (no forwarding)
+async function handleInventoryChange(_request: NextRequest, payload: any) {
+  return handleInventoryWebhook(payload);
 }
 
-async function handleCustomerUpdate(request: NextRequest, payload: any) {
-  // Forward to customer webhook
-  const url = new URL("/api/webhooks/nhanh/customer", request.url);
-  return fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  }).then(res => res.json()).then(data => NextResponse.json(data));
+async function handleCustomerUpdate(_request: NextRequest, payload: any) {
+  return handleCustomerWebhook(payload);
 }
 
-async function handleOrderEvent(request: NextRequest, payload: any) {
+async function handleOrderEvent(_request: NextRequest, payload: any) {
   // TODO: Implement order sync
   console.log(`📦 Order event: ${payload.event}`);
   return NextResponse.json({
@@ -128,7 +130,7 @@ async function handleOrderEvent(request: NextRequest, payload: any) {
   });
 }
 
-async function handleProductEvent(request: NextRequest, payload: any) {
+async function handleProductEvent(_request: NextRequest, payload: any) {
   // TODO: Implement product sync
   console.log(`🏷️ Product event: ${payload.event}`);
   return NextResponse.json({
