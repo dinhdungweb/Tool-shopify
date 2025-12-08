@@ -57,12 +57,14 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Validate webhook
+    // Validate webhook - only handle inventory events
     if (payload.event !== "inventoryChange") {
-      return NextResponse.json(
-        { success: false, error: "Invalid event type" },
-        { status: 400 }
-      );
+      console.log(`⚠️ Ignoring non-inventory event: ${payload.event}`);
+      return NextResponse.json({
+        success: true,
+        message: `Event ${payload.event} not handled by this endpoint`,
+        note: "This endpoint only handles inventoryChange events",
+      });
     }
 
     if (!payload.data || !Array.isArray(payload.data)) {
