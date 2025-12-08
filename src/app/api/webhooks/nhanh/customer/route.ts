@@ -23,6 +23,16 @@ export async function POST(request: NextRequest) {
       customersCount: payload.data?.length || 0,
     });
 
+    // Handle test webhook from Nhanh.vn
+    if (!payload.event || payload.event === "test") {
+      console.log("✅ Test webhook received from Nhanh.vn");
+      return NextResponse.json({
+        success: true,
+        message: "Webhook test successful",
+        endpoint: "/api/webhooks/nhanh/customer",
+      });
+    }
+
     // Validate webhook
     if (payload.event !== "customerUpdate") {
       return NextResponse.json(

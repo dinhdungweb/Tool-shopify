@@ -24,6 +24,16 @@ export async function POST(request: NextRequest) {
       productsCount: payload.data?.length || 0,
     });
 
+    // Handle test webhook from Nhanh.vn
+    if (!payload.event || payload.event === "test") {
+      console.log("✅ Test webhook received from Nhanh.vn");
+      return NextResponse.json({
+        success: true,
+        message: "Webhook test successful",
+        endpoint: "/api/webhooks/nhanh/inventory",
+      });
+    }
+
     // Validate webhook
     if (payload.event !== "inventoryChange") {
       return NextResponse.json(
