@@ -15,8 +15,22 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
-    // Parse webhook payload
-    const payload = await request.json();
+    // Parse webhook payload (handle empty body)
+    let payload: any = {};
+    try {
+      const text = await request.text();
+      if (text) {
+        payload = JSON.parse(text);
+      }
+    } catch (e) {
+      // Empty or invalid JSON - treat as test request
+      console.log("✅ Test webhook received from Nhanh.vn (empty body)");
+      return NextResponse.json({
+        success: true,
+        message: "Webhook test successful",
+        endpoint: "/api/webhooks/nhanh/inventory",
+      });
+    }
 
     console.log("📦 Received Nhanh inventory webhook:", {
       event: payload.event,
