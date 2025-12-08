@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components
 import { Modal } from "@/components/ui/modal";
 import Select from "@/components/form/Select";
 import Label from "@/components/form/Label";
+import { TrashBinIcon } from "@/icons";
 
 interface LocationMapping {
     id: string;
@@ -211,15 +212,16 @@ const LocationMappingTable = forwardRef<LocationMappingTableRef>((_, ref) => {
                                             {mapping.active ? "Active" : "Inactive"}
                                         </Badge>
                                     </TableCell>
-                                    <TableCell className="text-right">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => handleDelete(mapping.id)}
-                                            className="text-error-600 border-error-300 hover:bg-error-50 dark:text-error-400 dark:border-error-700 dark:hover:bg-error-900/20"
-                                        >
-                                            Delete
-                                        </Button>
+                                    <TableCell>
+                                        <div className="flex justify-end gap-1">
+                                            <button
+                                                onClick={() => handleDelete(mapping.id)}
+                                                className="p-2 text-gray-500 hover:text-error-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                                title="Delete mapping"
+                                            >
+                                                <TrashBinIcon className="w-5 h-5" />
+                                            </button>
+                                        </div>
                                     </TableCell>
                                 </TableRow>
                             ))

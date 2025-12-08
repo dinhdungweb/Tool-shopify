@@ -3,11 +3,8 @@ import { ShopifyProduct } from "@/types/product";
 import { getShopifyConfig } from "./api-config";
 
 class ShopifyProductAPI {
-  private clientPromise: Promise<AxiosInstance>;
-
   constructor() {
-    // Initialize client lazily with config from database
-    this.clientPromise = this.initializeClient();
+    // No initialization needed - client created fresh each time
   }
 
   private async initializeClient(): Promise<AxiosInstance> {
@@ -27,7 +24,8 @@ class ShopifyProductAPI {
   }
 
   private async getClient(): Promise<AxiosInstance> {
-    return this.clientPromise;
+    // Always get fresh config from database
+    return this.initializeClient();
   }
 
   /**
