@@ -14,21 +14,20 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
   
   try {
-    // Parse webhook payload (handle empty body)
+    // Parse webhook payload
+    const text = await request.text();
     let payload: any = {};
-    try {
-      const text = await request.text();
-      if (text) {
+    
+    if (text) {
+      try {
         payload = JSON.parse(text);
+      } catch (e) {
+        console.error("Invalid JSON payload");
+        return NextResponse.json(
+          { success: false, error: "Invalid JSON" },
+          { status: 400 }
+        );
       }
-    } catch (e) {
-      // Empty or invalid JSON - treat as test request
-      console.log("✅ Test webhook received from Nhanh.vn (empty body)");
-      return NextResponse.json({
-        success: true,
-        message: "Webhook test successful",
-        endpoint: "/api/webhooks/nhanh/customer",
-      });
     }
     
     console.log("👤 Received Nhanh customer webhook:", {
@@ -37,12 +36,22 @@ export async function POST(request: NextRequest) {
       customersCount: payload.data?.length || 0,
     });
 
-    // Handle test webhook from Nhanh.vn
-    if (!payload.event || payload.event === "test") {
-      console.log("✅ Test webhook received from Nhanh.vn");
+    // Handle webhooksEnabled test from Nhanh.vn
+    if (payload.event === "webhooksEnabled") {
+      console.log("✅ webhooksEnabled test received from Nhanh.vn");
       return NextResponse.json({
         success: true,
-        message: "Webhook test successful",
+        message: "Webhook is enabled and ready",
+        endpoint: "/api/webhooks/nhanh/customer",
+      });
+    }
+
+    // Handle empty or test webhook
+    if (!payload.event) {
+      console.log("✅ Test webhook received (no event)");
+      return NextResponse.json({
+        success: true,
+        message: "Webhook endpoint is ready",
         endpoint: "/api/webhooks/nhanh/customer",
       });
     }
