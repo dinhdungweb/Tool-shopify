@@ -7,6 +7,7 @@ import Switch from "../form/switch/Switch";
 import InputField from "../form/input/InputField";
 import Button from "../ui/button/Button";
 import Select from "../form/Select";
+import { Loader } from "../ui/loader";
 
 // Cron presets
 const CRON_PRESETS = {
@@ -149,7 +150,7 @@ export default function GlobalProductAutoSyncSettings({
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-brand-500"></div>
+            <Loader />
           </div>
         ) : (
           <div className="space-y-6">

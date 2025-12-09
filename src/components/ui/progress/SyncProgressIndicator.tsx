@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { SpinnerIcon } from "../loader";
 
 interface BackgroundJob {
   id: string;
@@ -106,7 +107,7 @@ export default function SyncProgressIndicator({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           {isRunning && (
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600"></div>
+            <SpinnerIcon size="xs" color="brand" />
           )}
           {isCompleted && (
             <svg className="h-5 w-5 text-success-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">

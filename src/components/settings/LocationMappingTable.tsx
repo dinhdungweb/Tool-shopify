@@ -9,6 +9,7 @@ import { Modal } from "@/components/ui/modal";
 import Select from "@/components/form/Select";
 import Label from "@/components/form/Label";
 import { TrashBinIcon } from "@/icons";
+import { Loader, SpinnerIcon } from "@/components/ui/loader";
 
 interface LocationMapping {
     id: string;
@@ -161,8 +162,7 @@ const LocationMappingTable = forwardRef<LocationMappingTableRef>((_, ref) => {
     if (loading) {
         return (
             <div className="flex items-center justify-center py-8">
-                <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-200 border-t-brand-500"></div>
-                <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">Loading locations...</span>
+                <Loader size="sm" text="Loading locations..." />
             </div>
         );
     }
@@ -278,7 +278,7 @@ const LocationMappingTable = forwardRef<LocationMappingTableRef>((_, ref) => {
                             disabled={!selectedDepot || !selectedLocation || saving}
                             startIcon={
                                 saving ? (
-                                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                                    <SpinnerIcon size="xs" className="border-white border-t-transparent" />
                                 ) : undefined
                             }
                         >

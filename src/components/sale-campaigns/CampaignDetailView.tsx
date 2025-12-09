@@ -6,6 +6,7 @@ import { saleClient } from "@/lib/api-client";
 import { CampaignStatus } from "@/types/sale";
 import CampaignStatusBadge from "./CampaignStatusBadge";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "../ui/table";
+import { Loader } from "../ui/loader";
 
 interface CampaignDetailViewProps {
   params: Promise<{ id: string }>;
@@ -152,7 +153,7 @@ export default function CampaignDetailView({ params }: CampaignDetailViewProps) 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-brand-500"></div>
+        <Loader />
       </div>
     );
   }

@@ -7,6 +7,7 @@ import Button from "@/components/ui/button/Button";
 import Input from "@/components/form/input/InputField";
 import Badge from "@/components/ui/badge/Badge";
 import LocationMappingTable, { LocationMappingTableRef } from "@/components/settings/LocationMappingTable";
+import { Loader, SpinnerIcon } from "@/components/ui/loader";
 
 export default function SettingsPage() {
   const { showToast } = useToast();
@@ -192,7 +193,7 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-brand-500"></div>
+        <Loader />
       </div>
     );
   }
@@ -238,7 +239,7 @@ export default function SettingsPage() {
                 disabled={saving}
                 startIcon={
                   saving ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                    <SpinnerIcon size="xs" className="border-white border-t-transparent" />
                   ) : (
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -271,7 +272,7 @@ export default function SettingsPage() {
                 disabled={testingNhanh}
                 startIcon={
                   testingNhanh ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                    <SpinnerIcon size="xs" className="border-white border-t-transparent" />
                   ) : (
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -372,7 +373,7 @@ export default function SettingsPage() {
                 disabled={testingShopify}
                 startIcon={
                   testingShopify ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                    <SpinnerIcon size="xs" className="border-white border-t-transparent" />
                   ) : (
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />

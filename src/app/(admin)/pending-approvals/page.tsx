@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import PageBreadcrumb from "@/components/common/PageBreadCrumb";
 import Button from "@/components/ui/button/Button";
 import Badge from "@/components/ui/badge/Badge";
+import { Loader } from "@/components/ui/loader";
 
 interface PendingItem {
     id: string;
@@ -183,8 +184,7 @@ export default function PendingApprovalsPage() {
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
                 {loading ? (
                     <div className="p-8 text-center">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500 mx-auto"></div>
-                        <p className="mt-4 text-gray-500 dark:text-gray-400">Loading...</p>
+                        <Loader text="Loading..." />
                     </div>
                 ) : currentItems.length === 0 ? (
                     <div className="p-8 text-center text-gray-500 dark:text-gray-400">

@@ -7,6 +7,7 @@ import Button from "@/components/ui/button/Button";
 import Select from "@/components/form/Select";
 import Input from "@/components/form/input/InputField";
 import Badge from "@/components/ui/badge/Badge";
+import { Loader } from "@/components/ui/loader";
 
 interface LogEntry {
   id: string;
@@ -171,7 +172,7 @@ export default function LogsPage() {
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-brand-500"></div>
+        <Loader />
       </div>
     );
   }

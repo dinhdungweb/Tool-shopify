@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHeader, TableRow } from "../ui/table"
 import Badge from "../ui/badge/Badge";
 import Switch from "../form/switch/Switch";
 import Select from "../form/Select";
+import { Loader, SpinnerIcon } from "../ui/loader";
 
 interface BackgroundJob {
   id: string;
@@ -219,9 +220,7 @@ export default function JobTrackingTable() {
             {loading && jobs.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="py-12 text-center">
-                  <div className="flex items-center justify-center">
-                    <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-brand-500"></div>
-                  </div>
+                  <Loader />
                 </TableCell>
               </TableRow>
             ) : filteredJobs.length === 0 ? (

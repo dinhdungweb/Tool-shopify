@@ -8,6 +8,7 @@ import CreateCampaignModal from "./CreateCampaignModal";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "../ui/table";
 import Pagination from "../tables/Pagination";
 import { CheckCircleIcon, TrashBinIcon, SyncIcon } from "@/icons";
+import { Loader, SpinnerIcon } from "../ui/loader";
 
 export default function SaleCampaignsTable() {
   const [campaigns, setCampaigns] = useState<any[]>([]);
@@ -277,9 +278,7 @@ export default function SaleCampaignsTable() {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={7} className="py-12 text-center">
-                  <div className="flex items-center justify-center">
-                    <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-brand-500"></div>
-                  </div>
+                  <Loader />
                 </TableCell>
               </TableRow>
             ) : campaigns.length === 0 ? (
@@ -352,7 +351,7 @@ export default function SaleCampaignsTable() {
                           title="Apply"
                         >
                           {actionLoadingId === campaign.id ? (
-                            <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-success-500" />
+                            <SpinnerIcon size="sm" color="success" />
                           ) : (
                             <CheckCircleIcon className="w-5 h-5" />
                           )}
@@ -365,7 +364,7 @@ export default function SaleCampaignsTable() {
                           title="Revert"
                         >
                           {actionLoadingId === campaign.id ? (
-                            <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-warning-500" />
+                            <SpinnerIcon size="sm" color="warning" />
                           ) : (
                             <SyncIcon className="w-5 h-5" />
                           )}

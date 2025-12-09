@@ -15,6 +15,7 @@ import { useToast } from "../ui/toast/ToastContainer";
 import { useJobMonitor } from "@/hooks/useJobMonitor";
 import { exportToCSV } from "@/lib/export-utils";
 import { TrashBinIcon, SyncIcon, LinkIcon } from "@/icons";
+import { Loader, SpinnerIcon } from "../ui/loader";
 
 export default function CustomerSyncTable() {
   const { showToast } = useToast();
@@ -626,7 +627,7 @@ export default function CustomerSyncTable() {
         <div className="border-b border-brand-200 bg-brand-50 p-4 dark:border-brand-800 dark:bg-brand-900/20">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600"></div>
+              <SpinnerIcon size="sm" color="brand" />
               <span className="text-sm font-medium text-brand-700 dark:text-brand-400">
                 {jobNotification}
               </span>
@@ -676,7 +677,7 @@ export default function CustomerSyncTable() {
               >
                 {pulling ? (
                   <>
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600"></div>
+                    <SpinnerIcon size="xs" color="brand" />
                     Pulling...
                   </>
                 ) : (
@@ -806,7 +807,7 @@ export default function CustomerSyncTable() {
               >
                 {pulling ? (
                   <>
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600"></div>
+                    <SpinnerIcon size="xs" color="gray" />
                     Pulling...
                   </>
                 ) : (
@@ -1365,9 +1366,7 @@ export default function CustomerSyncTable() {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={7} className="py-12 text-center">
-                  <div className="flex items-center justify-center">
-                    <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-brand-500"></div>
-                  </div>
+                  <Loader />
                 </TableCell>
               </TableRow>
             ) : customers.length === 0 ? (
@@ -1462,7 +1461,7 @@ export default function CustomerSyncTable() {
                               title="Sync"
                             >
                               {isSyncing ? (
-                                <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-success-500"></div>
+                                <SpinnerIcon size="sm" color="success" />
                               ) : (
                                 <SyncIcon className="w-5 h-5" />
                               )}

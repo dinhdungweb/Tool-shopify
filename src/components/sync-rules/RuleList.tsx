@@ -1,5 +1,6 @@
 "use client";
 import Badge from "@/components/ui/badge/Badge";
+import { Loader } from "@/components/ui/loader";
 import { PencilIcon, TrashBinIcon } from "@/icons";
 
 interface SyncRule {
@@ -62,8 +63,7 @@ export default function RuleList({
     if (loading) {
         return (
             <div className="rounded-xl border border-gray-200 bg-white p-8 text-center dark:border-gray-800 dark:bg-white/[0.03]">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500 mx-auto"></div>
-                <p className="mt-4 text-gray-500 dark:text-gray-400">Loading...</p>
+                <Loader text="Loading..." />
             </div>
         );
     }

@@ -10,6 +10,7 @@ import Select from "@/components/form/Select";
 import Radio from "@/components/form/input/Radio";
 import Checkbox from "@/components/form/input/Checkbox";
 import DateTimePicker from "@/components/form/DateTimePicker";
+import { Loader } from "@/components/ui/loader";
 
 interface CreateCampaignModalProps {
   isOpen: boolean;
@@ -420,7 +421,7 @@ export default function CreateCampaignModal({
               <div className="mt-4">
                 {productsLoading ? (
                   <div className="text-center py-8">
-                    <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-brand-500"></div>
+                    <Loader />
                   </div>
                 ) : (
                   <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-2">
@@ -448,7 +449,7 @@ export default function CreateCampaignModal({
               <div className="mt-4">
                 {productsLoading ? (
                   <div className="text-center py-8">
-                    <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-brand-500"></div>
+                    <Loader />
                   </div>
                 ) : (
                   <Select
@@ -468,7 +469,7 @@ export default function CreateCampaignModal({
               <div className="mt-4">
                 {productsLoading ? (
                   <div className="text-center py-8">
-                    <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-brand-500"></div>
+                    <Loader />
                   </div>
                 ) : productTypes.length > 0 ? (
                   <Select
@@ -548,8 +549,7 @@ export default function CreateCampaignModal({
 
             {previewLoading ? (
               <div className="text-center py-12">
-                <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-brand-500"></div>
-                <p className="mt-4 text-sm text-gray-500">Loading preview...</p>
+                <Loader text="Loading preview..." />
               </div>
             ) : preview ? (
               <div className="space-y-4">
