@@ -226,8 +226,8 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
     };
 
     return (
-        <div className="p-6">
-            <h2 className="text-xl font-bold mb-6 text-gray-800 dark:text-white">
+        <div className="p-4 sm:p-6">
+            <h2 className="text-lg sm:text-xl font-bold mb-4 sm:mb-6 text-gray-800 dark:text-white">
                 {rule ? "Edit Rule" : "Create New Rule"}
             </h2>
 
@@ -391,11 +391,11 @@ export default function RuleBuilder({ rule, onSave, onCancel }: RuleBuilderProps
             </div>
 
             {/* Buttons */}
-            <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-                <Button variant="outline" onClick={onCancel}>
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <Button variant="outline" onClick={onCancel} className="w-full sm:w-auto">
                     Cancel
                 </Button>
-                <Button onClick={handleSave} disabled={saving}>
+                <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
                     {saving ? "Saving..." : "Save Rule"}
                 </Button>
             </div>
