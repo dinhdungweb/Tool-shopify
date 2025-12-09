@@ -203,7 +203,7 @@ export default function SettingsPage() {
 
       <div className="space-y-6">
         {/* Header Actions */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Configure your API connections for Nhanh.vn and Shopify
           </p>
@@ -222,7 +222,7 @@ export default function SettingsPage() {
               Edit Settings
             </Button>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
@@ -254,8 +254,8 @@ export default function SettingsPage() {
 
         {/* Nhanh.vn Settings */}
         <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-          <div className="border-b border-gray-200 p-6 dark:border-gray-800">
-            <div className="flex items-center justify-between">
+          <div className="border-b border-gray-200 p-4 sm:p-6 dark:border-gray-800">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                   Nhanh.vn API
@@ -355,8 +355,8 @@ export default function SettingsPage() {
 
         {/* Shopify Settings */}
         <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-          <div className="border-b border-gray-200 p-6 dark:border-gray-800">
-            <div className="flex items-center justify-between">
+          <div className="border-b border-gray-200 p-4 sm:p-6 dark:border-gray-800">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                   Shopify API
@@ -428,8 +428,8 @@ export default function SettingsPage() {
 
         {/* Location Mapping Settings */}
         <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-          <div className="border-b border-gray-200 p-6 dark:border-gray-800">
-            <div className="flex items-center justify-between">
+          <div className="border-b border-gray-200 p-4 sm:p-6 dark:border-gray-800">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                   Multi-Location Inventory

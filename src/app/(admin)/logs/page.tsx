@@ -182,12 +182,12 @@ export default function LogsPage() {
       
       <div className="space-y-6">
         {/* Header Actions */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Monitor system activities and debug issues
           </p>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <Button
               variant={autoRefresh ? "primary" : "outline"}
               size="sm"
