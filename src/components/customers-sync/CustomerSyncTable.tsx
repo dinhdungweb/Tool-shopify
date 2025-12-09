@@ -656,7 +656,7 @@ export default function CustomerSyncTable() {
 
       {/* Header Actions */}
       <div className="border-b border-gray-200 p-4 sm:p-6 dark:border-gray-800">
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
               Nhanh.vn Customers
@@ -666,7 +666,7 @@ export default function CustomerSyncTable() {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2 sm:gap-3">
+          <div className="flex flex-wrap gap-2 sm:gap-3 sm:flex-shrink-0">
             {/* Pull Nhanh Customers Dropdown */}
             <div className="relative">
               <button
