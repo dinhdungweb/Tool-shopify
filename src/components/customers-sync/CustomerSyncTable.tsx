@@ -655,8 +655,8 @@ export default function CustomerSyncTable() {
       )}
 
       {/* Header Actions */}
-      <div className="border-b border-gray-200 p-6 dark:border-gray-800">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="border-b border-gray-200 p-4 sm:p-6 dark:border-gray-800">
+        <div className="flex flex-col gap-4">
           <div>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
               Nhanh.vn Customers
@@ -666,7 +666,7 @@ export default function CustomerSyncTable() {
             </p>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-2 sm:gap-3">
             {/* Pull Nhanh Customers Dropdown */}
             <div className="relative">
               <button
@@ -1111,7 +1111,7 @@ export default function CustomerSyncTable() {
         </div>
 
         {/* Search and Filter Bar */}
-        <div className="mt-4 flex gap-3">
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
           <div className="relative flex-1">
             <input
               type="text"
@@ -1134,7 +1134,7 @@ export default function CustomerSyncTable() {
           </div>
 
           {/* Filter Dropdown */}
-          <div className="relative">
+          <div className="relative flex-shrink-0">
             <button
               onClick={() => setFilterDropdownOpen(!filterDropdownOpen)}
               className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
