@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleInventoryWebhook } from "./handlers/inventory";
 import { handleCustomerWebhook } from "./handlers/customer";
+import { handleOrderWebhook } from "./handlers/order";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
     // Security: Verify webhook token (optional but recommended)
     const authHeader = request.headers.get("authorization");
     const expectedToken = process.env.NHANH_WEBHOOK_TOKEN;
-    
+
     if (expectedToken && authHeader !== `Bearer ${expectedToken}`) {
       console.error("❌ Invalid webhook token");
       return NextResponse.json(
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
     // Parse webhook payload
     const text = await request.text();
     let payload: any = {};
-    
+
     if (text) {
       try {
         payload = JSON.parse(text);
@@ -64,18 +65,18 @@ export async function POST(request: NextRequest) {
     switch (event) {
       case "inventoryChange":
         return handleInventoryChange(request, payload);
-      
+
       case "customerUpdate":
         return handleCustomerUpdate(request, payload);
-      
+
       case "orderAdd":
       case "orderUpdate":
         return handleOrderEvent(request, payload);
-      
+
       case "productAdd":
       case "productUpdate":
         return handleProductEvent(request, payload);
-      
+
       default:
         console.log(`⚠️ Unhandled event: ${event}`);
         return NextResponse.json({
@@ -122,12 +123,7 @@ async function handleCustomerUpdate(_request: NextRequest, payload: any) {
 }
 
 async function handleOrderEvent(_request: NextRequest, payload: any) {
-  // TODO: Implement order sync
-  console.log(`📦 Order event: ${payload.event}`);
-  return NextResponse.json({
-    success: true,
-    message: "Order event received (not implemented yet)",
-  });
+  return handleOrderWebhook(payload);
 }
 
 async function handleProductEvent(_request: NextRequest, payload: any) {
