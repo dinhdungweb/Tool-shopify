@@ -14,35 +14,52 @@ export async function handleOrderWebhook(payload: any) {
     try {
         const event = payload.event;
         const orderData = payload.data;
+        const orderId = orderData?.info?.id;
+        const saleChannel = orderData?.channel?.saleChannel;
+        const shopName = orderData?.channel?.appShopName || orderData?.channel?.shopName || "";
 
-        console.log(`📦 Processing order webhook: ${event}`);
+        // Identify order source
+        const isMarketplace = saleChannel && saleChannel >= 40; // saleChannel >= 40 = sàn TMĐT
+        const orderSource = isMarketplace ? `Sàn TMĐT (${shopName})` : "Website/POS";
+
+        console.log(`📦 Order webhook: ${event}`);
+        console.log(`   📋 Order ID: ${orderId}`);
+        console.log(`   🏪 Source: ${orderSource} (channel: ${saleChannel})`);
 
         // Extract customer ID from order data
         // Based on Nhanh API docs: data.shippingAddress.id is the customer ID
-        const customerId = orderData?.shippingAddress?.id?.toString();
+        const rawCustomerId = orderData?.shippingAddress?.id;
+        const customerId = rawCustomerId?.toString();
 
-        if (!customerId) {
-            console.log("⚠️ No customer ID in order payload, skipping sync");
+        // Skip if customer ID is missing, "0", or invalid
+        if (!customerId || customerId === "0" || customerId === "null" || customerId === "undefined") {
+            const reason = isMarketplace
+                ? `Đơn từ ${orderSource} - không có customer ID trong hệ thống Nhanh`
+                : "Customer ID không hợp lệ";
 
-            // Log webhook for debugging
+            console.log(`⏭️ Skip: ${reason}`);
+
+            // Log webhook for debugging (don't log full payload for marketplace orders to save space)
             await prisma.webhookLog.create({
                 data: {
                     source: "nhanh",
                     eventType: event,
-                    payload: payload,
+                    payload: { orderId, saleChannel, shopName, reason },
                     processed: true,
-                    error: "No customer ID found in order",
+                    error: reason,
                 },
             });
 
             return NextResponse.json({
                 success: true,
-                message: "Order received but no customer ID to sync",
+                message: reason,
                 event,
+                orderId,
+                source: orderSource,
             });
         }
 
-        console.log(`👤 Customer ID from order: ${customerId}`);
+        console.log(`👤 Customer ID: ${customerId}`);
 
         // Find mapping for this customer
         const mapping = await prisma.customerMapping.findUnique({
@@ -50,23 +67,24 @@ export async function handleOrderWebhook(payload: any) {
         });
 
         if (!mapping || !mapping.shopifyCustomerId) {
-            console.log(`⏭️ Skipped: No mapping for Nhanh customer ${customerId}`);
+            console.log(`⏭️ Skip: Customer ${customerId} chưa được mapping với Shopify`);
 
             // Log webhook
             await prisma.webhookLog.create({
                 data: {
                     source: "nhanh",
                     eventType: event,
-                    payload: payload,
+                    payload: { orderId, customerId, saleChannel },
                     processed: true,
-                    error: `No mapping found for customer ${customerId}`,
+                    error: `Customer ${customerId} not mapped`,
                 },
             });
 
             return NextResponse.json({
                 success: true,
-                message: `Order received but customer ${customerId} not mapped`,
+                message: `Customer ${customerId} chưa mapping - không sync`,
                 event,
+                orderId,
                 customerId,
             });
         }
