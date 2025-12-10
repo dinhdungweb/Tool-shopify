@@ -91,8 +91,8 @@ class ShopifyAPI {
         // Don't retry on other errors
         throw new Error(
           error.response?.data?.errors?.[0]?.message ||
-            error.message ||
-            "Shopify API request failed"
+          error.message ||
+          "Shopify API request failed"
         );
       }
     }
@@ -100,8 +100,8 @@ class ShopifyAPI {
     // All retries failed
     throw new Error(
       lastError.response?.data?.errors?.[0]?.message ||
-        lastError.message ||
-        "Shopify API request failed after retries"
+      lastError.message ||
+      "Shopify API request failed after retries"
     );
   }
 
@@ -292,10 +292,12 @@ class ShopifyAPI {
     customerId: string,
     totalSpent: number
   ): Promise<boolean> {
+    // Round to integer since Shopify metafield type is number_integer
+    const roundedValue = Math.round(totalSpent);
     return this.updateCustomerMetafield(customerId, {
       namespace: "custom",
       key: "total_spent",
-      value: totalSpent.toString(),
+      value: roundedValue.toString(),
       type: "number_integer",
     });
   }
@@ -330,7 +332,7 @@ class ShopifyAPI {
    * Get all customers (paginated) with optional filters
    */
   async getAllCustomers(
-    limit: number = 50, 
+    limit: number = 50,
     cursor?: string,
     query?: string
   ): Promise<{
