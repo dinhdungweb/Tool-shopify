@@ -16,10 +16,10 @@ export async function POST(request: NextRequest) {
       status: "RUNNING",
     },
   });
-  
+
   // Start background process immediately
   pullAllProductsBackground(job.id);
-  
+
   return NextResponse.json({
     success: true,
     jobId: job.id,
@@ -30,12 +30,14 @@ export async function POST(request: NextRequest) {
 async function pullAllProductsBackground(jobId: string) {
   console.log(`🚀 Starting background pull of ALL Nhanh products (Job: ${jobId})...`);
   const startTime = Date.now();
-  
+
   let created = 0;
   let updated = 0;
   let failed = 0;
   let totalFetched = 0;
   let pageCount = 0;
+  let consecutiveErrors = 0;
+  const MAX_CONSECUTIVE_ERRORS = 3;
   let nextCursor: any = undefined;
 
   try {
@@ -57,7 +59,7 @@ async function pullAllProductsBackground(jobId: string) {
     while (hasMore) {
       pageCount++;
       const pageStartTime = Date.now();
-      
+
       try {
         console.log(`📦 Fetching page ${pageCount}...`);
 
@@ -78,17 +80,17 @@ async function pullAllProductsBackground(jobId: string) {
 
         // Bulk upsert products
         const dbStartTime = Date.now();
-        
+
         // Get existing product IDs
         const existingIds = await prisma.nhanhProduct.findMany({
           where: { id: { in: products.map(p => p.id) } },
           select: { id: true }
         });
-        
+
         const existingIdSet = new Set(existingIds.map(p => p.id));
         const toCreate = products.filter(p => !existingIdSet.has(p.id));
         const toUpdate = products.filter(p => existingIdSet.has(p.id));
-        
+
         // Bulk create new products
         if (toCreate.length > 0) {
           await prisma.nhanhProduct.createMany({
@@ -112,12 +114,12 @@ async function pullAllProductsBackground(jobId: string) {
           });
           created += toCreate.length;
         }
-        
+
         // Bulk update existing products (EXTREME: Parallel processing with batch 200)
         if (toUpdate.length > 0) {
           const updateBatchSize = 200; // Increased from 100 to 200
           const updatePromises = [];
-          
+
           for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
             const batch = toUpdate.slice(i, i + updateBatchSize);
             updatePromises.push(
@@ -145,7 +147,7 @@ async function pullAllProductsBackground(jobId: string) {
               )
             );
           }
-          
+
           // Execute all update batches in parallel
           await Promise.all(updatePromises);
           updated += toUpdate.length;
@@ -153,7 +155,7 @@ async function pullAllProductsBackground(jobId: string) {
 
         const dbTime = ((Date.now() - dbStartTime) / 1000).toFixed(2);
         totalFetched += products.length;
-        
+
         console.log(`  💾 Saved to DB in ${dbTime}s (Created: ${toCreate.length}, Updated: ${toUpdate.length})`);
         console.log(`  📊 Progress: ${totalFetched} total products, Page ${pageCount} completed`);
 
@@ -173,7 +175,7 @@ async function pullAllProductsBackground(jobId: string) {
                 pages: pageCount,
               },
             },
-          }).catch(() => {});
+          }).catch(() => { });
         }
 
         // Check for next page
@@ -201,6 +203,9 @@ async function pullAllProductsBackground(jobId: string) {
           },
         });
 
+        // Reset error counter on success
+        consecutiveErrors = 0;
+
         // Rate limiting delay (SAFE OPTIMIZED: Reduced to 10ms)
         if (hasMore) {
           await new Promise(resolve => setTimeout(resolve, 10));
@@ -208,8 +213,25 @@ async function pullAllProductsBackground(jobId: string) {
 
       } catch (pageError: any) {
         console.error(`❌ Error on page ${pageCount}:`, pageError.message);
+        consecutiveErrors++;
         failed += 100; // Assume page failed
-        
+
+        // Check for too many consecutive errors
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          console.error(`🚫 Too many consecutive errors (${consecutiveErrors}), stopping pull`);
+
+          // Update job as FAILED
+          await prisma.backgroundJob.update({
+            where: { id: jobId },
+            data: {
+              status: "FAILED",
+              error: `Too many consecutive errors (${consecutiveErrors}). Last error: ${pageError.message}`,
+              completedAt: new Date(),
+            },
+          }).catch(() => { });
+          break;
+        }
+
         // Save progress even on error
         await prisma.pullProgress.upsert({
           where: { id: "nhanh_products" },
@@ -226,7 +248,9 @@ async function pullAllProductsBackground(jobId: string) {
             lastPulledAt: new Date(),
           },
         });
-        
+
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 2000));
         continue;
       }
     }
@@ -234,7 +258,7 @@ async function pullAllProductsBackground(jobId: string) {
     const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
     const speed = totalFetched > 0 ? (totalFetched / durationSeconds).toFixed(1) : "0";
     const duration = formatDuration(durationSeconds);
-    
+
     console.log(`\n✅ Pull completed successfully!`);
     console.log(`📊 Final stats:`);
     console.log(`   - Total products: ${totalFetched}`);
@@ -271,11 +295,11 @@ async function pullAllProductsBackground(jobId: string) {
           updated,
         },
       },
-    }).catch(() => {});
+    }).catch(() => { });
 
   } catch (error: any) {
     console.error("❌ Fatal error in background pull:", error);
-    
+
     // Update job as failed
     await prisma.backgroundJob.update({
       where: { id: jobId },
@@ -284,8 +308,8 @@ async function pullAllProductsBackground(jobId: string) {
         error: error.message,
         completedAt: new Date(),
       },
-    }).catch(() => {});
-    
+    }).catch(() => { });
+
     // Save error state
     try {
       await prisma.pullProgress.upsert({

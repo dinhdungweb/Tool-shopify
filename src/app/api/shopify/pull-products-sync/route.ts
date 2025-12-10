@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   // Get status filter from request body
   const body = await request.json().catch(() => ({}));
   const { status } = body; // "active", "draft", "archived", or undefined for all
-  
+
   // Create background job for tracking
   const job = await prisma.backgroundJob.create({
     data: {
@@ -23,10 +23,10 @@ export async function POST(request: NextRequest) {
       },
     },
   });
-  
+
   // Start background process immediately
   pullAllProductsBackground(status, job.id);
-  
+
   return NextResponse.json({
     success: true,
     jobId: job.id,
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 async function pullAllProductsBackground(status?: string, jobId?: string) {
   const statusFilter = status ? ` (status: ${status})` : "";
   console.log(`🚀 Starting background pull of Shopify products${statusFilter}...`);
-  
+
   // Get config from database (with env fallback)
   const config = await getShopifyConfig();
   const shopDomain = config.storeUrl || "";
@@ -51,6 +51,9 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
   let totalFetched = 0;
   let pageCount = 0;
   let cursor: string | null = null;
+  let consecutiveErrors = 0;
+  const MAX_CONSECUTIVE_ERRORS = 3;
+  let fatalError = false;
   const startTime = Date.now();
 
   try {
@@ -80,17 +83,17 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
     } else if (progress?.isCompleted) {
       console.log(`✅ Previous pull was completed, starting fresh pull`);
     }
-    
+
     while (hasNextPage) {
       pageCount++;
       const pageStartTime = Date.now();
-      
+
       try {
         console.log(`📦 Fetching page ${pageCount}...`);
 
         // Build query filter based on status
         const queryFilter = status ? `status:${status}` : "";
-        
+
         const query = `
           query getProducts($cursor: String) {
             products(first: 50, after: $cursor${queryFilter ? `, query: "${queryFilter}"` : ""}) {
@@ -200,17 +203,17 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
 
         // Bulk upsert variants
         const dbStartTime = Date.now();
-        
+
         // Get existing variant IDs
         const existingIds = await prisma.shopifyProduct.findMany({
           where: { id: { in: allVariants.map(v => v.id) } },
           select: { id: true }
         });
-        
+
         const existingIdSet = new Set(existingIds.map(v => v.id));
         const toCreate = allVariants.filter(v => !existingIdSet.has(v.id));
         const toUpdate = allVariants.filter(v => existingIdSet.has(v.id));
-        
+
         // Bulk create new variants
         if (toCreate.length > 0) {
           await prisma.shopifyProduct.createMany({
@@ -222,7 +225,7 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
           });
           created += toCreate.length;
         }
-        
+
         // Bulk update existing variants (in batches)
         if (toUpdate.length > 0) {
           const updateBatchSize = 100;
@@ -245,7 +248,7 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
 
         const dbTime = ((Date.now() - dbStartTime) / 1000).toFixed(2);
         totalFetched += allVariants.length;
-        
+
         console.log(`  💾 Saved to DB in ${dbTime}s (Created: ${toCreate.length}, Updated: ${toUpdate.length})`);
         console.log(`  📊 Progress: ${totalFetched} total variants, Page ${pageCount} completed`);
 
@@ -266,7 +269,7 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
                 pages: pageCount,
               },
             },
-          }).catch(() => {});
+          }).catch(() => { });
         }
 
         // Check for next page
@@ -294,6 +297,9 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
           },
         });
 
+        // Reset error counter on success
+        consecutiveErrors = 0;
+
         // Rate limiting delay
         if (hasNextPage) {
           await new Promise(resolve => setTimeout(resolve, 500));
@@ -301,8 +307,48 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
 
       } catch (pageError: any) {
         console.error(`❌ Error on page ${pageCount}:`, pageError.message);
+        consecutiveErrors++;
         failed += 50; // Assume page failed
-        
+
+        // Check for fatal auth errors (401, 403)
+        const errorStatus = pageError.response?.status;
+        if (errorStatus === 401 || errorStatus === 403) {
+          console.error(`🚫 Fatal auth error (HTTP ${errorStatus}), stopping pull immediately`);
+          fatalError = true;
+
+          // Update job as FAILED
+          if (jobId) {
+            await prisma.backgroundJob.update({
+              where: { id: jobId },
+              data: {
+                status: "FAILED",
+                error: `Authentication error: HTTP ${errorStatus}. Please check your Shopify Access Token.`,
+                completedAt: new Date(),
+              },
+            }).catch(() => { });
+          }
+          break;
+        }
+
+        // Check for too many consecutive errors
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          console.error(`🚫 Too many consecutive errors (${consecutiveErrors}), stopping pull`);
+          fatalError = true;
+
+          // Update job as FAILED
+          if (jobId) {
+            await prisma.backgroundJob.update({
+              where: { id: jobId },
+              data: {
+                status: "FAILED",
+                error: `Too many consecutive errors (${consecutiveErrors}). Last error: ${pageError.message}`,
+                completedAt: new Date(),
+              },
+            }).catch(() => { });
+          }
+          break;
+        }
+
         // Save progress even on error
         await prisma.pullProgress.upsert({
           where: { id: "shopify_products" },
@@ -319,7 +365,9 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
             lastPulledAt: new Date(),
           },
         });
-        
+
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 2000));
         continue;
       }
     }
@@ -327,7 +375,7 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
     const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
     const speed = totalFetched > 0 ? (totalFetched / durationSeconds).toFixed(1) : "0";
     const durationFormatted = durationSeconds < 60 ? `${durationSeconds}s` : `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;
-    
+
     console.log(`\n✅ Pull completed successfully!`);
     console.log(`📊 Final stats:`);
     console.log(`   - Total variants: ${totalFetched}`);
@@ -366,12 +414,12 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
             updated,
           },
         },
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
   } catch (error: any) {
     console.error("❌ Fatal error in background pull:", error);
-    
+
     // Update job as failed
     if (jobId) {
       await prisma.backgroundJob.update({
@@ -381,9 +429,9 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
           error: error.message,
           completedAt: new Date(),
         },
-      }).catch(() => {});
+      }).catch(() => { });
     }
-    
+
     // Save error state
     try {
       await prisma.pullProgress.upsert({
