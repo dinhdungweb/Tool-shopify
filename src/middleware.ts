@@ -10,6 +10,11 @@ export function middleware(request: NextRequest) {
   const publicRoutes = ["/signin", "/forgot-password", "/reset-password"];
   const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route));
 
+  // Block signup page completely - redirect to home
+  if (pathname.startsWith("/signup")) {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
   // If user is not authenticated and trying to access protected route
   if (!sessionToken && !isPublicRoute) {
     const signInUrl = new URL("/signin", request.url);
