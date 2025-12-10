@@ -11,43 +11,51 @@ export const maxDuration = 300;
  * Processes in small chunks to avoid timeouts
  */
 
-// Helper to normalize phone
+// Helper to normalize phone - handles all Vietnamese phone formats
 function normalizePhone(phone: string): string[] {
   if (!phone) return [];
   const cleaned = phone.replace(/[\s\-\(\)\+]/g, "");
-  const variations = [cleaned];
-  
+  const variations = new Set<string>([cleaned]);
+
   if (cleaned.startsWith("0")) {
-    variations.push("84" + cleaned.substring(1));
+    // 0794936853 -> also check 794936853, 84794936853
+    variations.add("84" + cleaned.substring(1));
+    variations.add(cleaned.substring(1)); // Remove leading 0
   } else if (cleaned.startsWith("84")) {
-    variations.push("0" + cleaned.substring(2));
+    // 84794936853 -> also check 0794936853, 794936853
+    variations.add("0" + cleaned.substring(2));
+    variations.add(cleaned.substring(2)); // Remove 84
+  } else if (cleaned.length >= 9 && cleaned.length <= 10) {
+    // 794936853 (no prefix) -> also check 0794936853, 84794936853
+    variations.add("0" + cleaned);
+    variations.add("84" + cleaned);
   }
-  
-  return variations;
+
+  return Array.from(variations);
 }
 
 // Helper to extract phone numbers from note
 function extractPhonesFromNote(note: string): string[] {
   if (!note) return [];
-  
+
   // Regex to find Vietnamese phone numbers (10-11 digits)
   const phoneRegex = /(?:\+?84|0)(?:\d[\s\-\.]?){8,10}\d/g;
   const matches = note.match(phoneRegex);
-  
+
   if (!matches) return [];
-  
+
   const phones: string[] = [];
   matches.forEach(match => {
     const normalized = match.replace(/[\s\-\(\)\+\.]/g, "");
     phones.push(...normalizePhone(normalized));
   });
-  
+
   return [...new Set(phones)]; // Remove duplicates
 }
 
 export async function POST(request: NextRequest) {
   let job: any = null;
-  
+
   try {
     const { dryRun = false, batchSize = 1000 } = await request.json();
 
@@ -72,7 +80,7 @@ export async function POST(request: NextRequest) {
     const unmappedCustomers = await prisma.nhanhCustomer.findMany({
       where: {
         mapping: null,
-        phone: { 
+        phone: {
           not: null,
           notIn: [""]
         },
@@ -94,7 +102,7 @@ export async function POST(request: NextRequest) {
       data: {
         total: unmappedCustomers.length,
       },
-    }).catch(() => {});
+    }).catch(() => { });
 
     if (unmappedCustomers.length === 0) {
       await prisma.backgroundJob.update({
@@ -103,7 +111,7 @@ export async function POST(request: NextRequest) {
           status: "COMPLETED",
           completedAt: new Date(),
         },
-      }).catch(() => {});
+      }).catch(() => { });
 
       return NextResponse.json({
         success: true,
@@ -121,19 +129,19 @@ export async function POST(request: NextRequest) {
     const shopifyCustomers = await prisma.shopifyCustomer.findMany({
       where: {
         OR: [
-          { 
+          {
             AND: [
               { phone: { not: null } },
               { phone: { not: "" } }
             ]
           },
-          { 
+          {
             AND: [
               { defaultAddressPhone: { not: null } },
               { defaultAddressPhone: { not: "" } }
             ]
           },
-          { 
+          {
             AND: [
               { note: { not: null } },
               { note: { not: "" } }
@@ -156,20 +164,20 @@ export async function POST(request: NextRequest) {
     const phoneMap = new Map<string, typeof shopifyCustomers>();
     let notesProcessed = 0;
     let phonesFromNotes = 0;
-    
+
     for (const customer of shopifyCustomers) {
       const phonesSet = new Set<string>();
-      
+
       // 1. Primary phone
       if (customer.phone) {
         normalizePhone(customer.phone).forEach(p => phonesSet.add(p));
       }
-      
+
       // 2. Default address phone
       if (customer.defaultAddressPhone) {
         normalizePhone(customer.defaultAddressPhone).forEach(p => phonesSet.add(p));
       }
-      
+
       // 3. Extract phones from note (limit to 2000 chars for performance)
       if (customer.note && customer.note.length < 2000) {
         const beforeCount = phonesSet.size;
@@ -179,7 +187,7 @@ export async function POST(request: NextRequest) {
           phonesFromNotes += (phonesSet.size - beforeCount);
         }
       }
-      
+
       // Index unique phones only
       for (const phone of phonesSet) {
         if (!phoneMap.has(phone)) {
@@ -205,7 +213,7 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < unmappedCustomers.length; i += batchSize) {
       const batch = unmappedCustomers.slice(i, i + batchSize);
       const batchNum = Math.floor(i / batchSize) + 1;
-      
+
       console.log(`  📦 Batch ${batchNum}/${totalBatches} (${batch.length} customers)...`);
 
       for (const nhanhCustomer of batch) {
@@ -227,7 +235,7 @@ export async function POST(request: NextRequest) {
         // Only match if exactly 1 customer found
         if (shopifyMatches.length === 1) {
           const shopifyCustomer = shopifyMatches[0];
-          
+
           matchesToCreate.push({
             nhanhCustomerId: nhanhCustomer.id,
             nhanhCustomerName: nhanhCustomer.name,
@@ -239,7 +247,7 @@ export async function POST(request: NextRequest) {
             shopifyCustomerName: `${shopifyCustomer.firstName || ""} ${shopifyCustomer.lastName || ""}`.trim(),
             syncStatus: SyncStatus.PENDING,
           });
-          
+
           matched++;
         } else {
           skipped++;
@@ -278,7 +286,7 @@ export async function POST(request: NextRequest) {
             speed: `${speed} customers/sec`,
           },
         },
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     // Create remaining mappings
@@ -317,7 +325,7 @@ export async function POST(request: NextRequest) {
           batches: totalBatches,
         },
       },
-    }).catch(() => {});
+    }).catch(() => { });
 
     return NextResponse.json({
       success: true,
@@ -345,7 +353,7 @@ export async function POST(request: NextRequest) {
           error: error.message,
           completedAt: new Date(),
         },
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     return NextResponse.json(
