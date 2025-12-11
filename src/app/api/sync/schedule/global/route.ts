@@ -72,15 +72,14 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Reinitialize scheduler with new config
-    if (config.enabled) {
-      const initResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/sync/schedule/init`,
-        { method: 'POST' }
-      );
-      const initResult = await initResponse.json();
-      console.log('Scheduler reinitialized:', initResult);
-    }
+    // Reinitialize scheduler with new config (both enabled and disabled)
+    // This ensures the scheduler is stopped when disabled
+    const initResponse = await fetch(
+      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/sync/schedule/init`,
+      { method: 'POST' }
+    );
+    const initResult = await initResponse.json();
+    console.log('Scheduler reinitialized:', initResult);
 
     return NextResponse.json({
       success: true,
