@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/toast/ToastContainer";
 import PageBreadcrumb from "@/components/common/PageBreadCrumb";
@@ -10,7 +10,16 @@ import Badge from "@/components/ui/badge/Badge";
 import LocationMappingTable, { LocationMappingTableRef } from "@/components/settings/LocationMappingTable";
 import { Loader, SpinnerIcon } from "@/components/ui/loader";
 
+// Wrapper component to handle Suspense for useSearchParams
 export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader /></div>}>
+      <SettingsPageContent />
+    </Suspense>
+  );
+}
+
+function SettingsPageContent() {
   const { showToast } = useToast();
   const searchParams = useSearchParams();
 
