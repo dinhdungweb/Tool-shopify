@@ -67,7 +67,24 @@ export async function GET(request: NextRequest) {
             }),
         });
 
-        const tokenData = await tokenResponse.json();
+        // Get response as text first to handle HTML error pages
+        const responseText = await tokenResponse.text();
+        console.log("Nhanh token response:", responseText.substring(0, 500));
+
+        // Check if response is HTML (error page)
+        if (responseText.startsWith("<!DOCTYPE") || responseText.startsWith("<html")) {
+            console.error("Nhanh API returned HTML instead of JSON");
+            return redirectWithError("Nhanh API hiện không khả dụng, vui lòng thử lại sau");
+        }
+
+        // Parse JSON
+        let tokenData;
+        try {
+            tokenData = JSON.parse(responseText);
+        } catch (parseError) {
+            console.error("Failed to parse Nhanh response:", responseText.substring(0, 200));
+            return redirectWithError("Invalid response from Nhanh API");
+        }
 
         if (tokenData.code !== 1) {
             console.error("Nhanh token exchange failed:", tokenData);
