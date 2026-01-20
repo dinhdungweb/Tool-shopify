@@ -10,12 +10,18 @@ export const dynamic = 'force-dynamic';
 /**
  * POST /api/sync/auto-sync
  * Sync all SYNCED mappings
+ * 
+ * Query params:
+ * - limit: Maximum number of customers to sync (optional)
+ * - forceSync: If "true", skip smart detection and sync all (optional)
  */
 export async function POST(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const limitParam = searchParams.get('limit');
-    const limit = limitParam ? parseInt(limitParam) : undefined; // No limit by default
+    const forceSyncParam = searchParams.get('forceSync');
+    const limit = limitParam ? parseInt(limitParam) : undefined;
+    const forceSync = forceSyncParam === 'true';
 
     // Create background job for tracking
     const job = await prisma.backgroundJob.create({
@@ -25,19 +31,23 @@ export async function POST(request: NextRequest) {
         status: 'RUNNING',
         metadata: {
           limit: limit || 'all',
+          forceSync,
         },
       },
     });
 
-    console.log(`Starting global auto sync (Job: ${job.id})...`);
+    console.log(`Starting global auto sync (Job: ${job.id}, forceSync: ${forceSync})...`);
 
     // Start background processing (don't await)
-    autoSyncInBackground(job.id, limit);
+    autoSyncInBackground(job.id, limit, forceSync);
 
     return NextResponse.json({
       success: true,
       jobId: job.id,
-      message: 'Background auto sync started! Check Job Tracking for progress.',
+      forceSync,
+      message: forceSync
+        ? 'Background FORCE sync started! Check Job Tracking for progress.'
+        : 'Background auto sync started! Check Job Tracking for progress.',
     });
   } catch (error: any) {
     console.error('Error starting auto sync:', error);
@@ -51,9 +61,9 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function autoSyncInBackground(jobId: string, limit?: number) {
+async function autoSyncInBackground(jobId: string, limit?: number, forceSync: boolean = false) {
   try {
-    console.log('Starting global auto sync...');
+    console.log(`Starting global auto sync (forceSync: ${forceSync})...`);
 
     // Find all SYNCED mappings
     const mappings = await prisma.customerMapping.findMany({
@@ -69,6 +79,7 @@ async function autoSyncInBackground(jobId: string, limit?: number) {
     const results = {
       total: mappings.length,
       successful: 0,
+      skipped: 0,
       failed: 0,
       errors: [] as Array<{ mappingId: string; customerName: string; error: string }>,
     };
@@ -79,13 +90,13 @@ async function autoSyncInBackground(jobId: string, limit?: number) {
       data: {
         total: mappings.length,
       },
-    }).catch(() => {});
+    }).catch(() => { });
 
     // Sync mappings in parallel batches for better performance
     // Conservative settings to avoid rate limiting from Nhanh/Shopify APIs
     const BATCH_SIZE = 5; // Process 5 customers at a time (safe for rate limits)
     const BATCH_DELAY = 2000; // 2 second delay between batches (safe buffer)
-    
+
     // Rate limit safety:
     // - Nhanh API: ~40 requests/minute limit
     // - Shopify API: 2 requests/second per store
@@ -93,14 +104,14 @@ async function autoSyncInBackground(jobId: string, limit?: number) {
     // - Each customer = 1 Nhanh call + 1 Shopify call = 2 API calls
     // - 5 customers/batch × 2 calls = 10 API calls per batch
     // - With 2s delay: 30 batches/minute = 150 customers/minute (safe)
-    
+
     for (let i = 0; i < mappings.length; i += BATCH_SIZE) {
       const batch = mappings.slice(i, i + BATCH_SIZE);
       const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
       const totalBatches = Math.ceil(mappings.length / BATCH_SIZE);
-      
+
       console.log(`Processing batch ${batchNumber}/${totalBatches} (${batch.length} customers)...`);
-      
+
       // Process batch in parallel
       const batchPromises = batch.map(async (mapping) => {
         try {
@@ -113,19 +124,24 @@ async function autoSyncInBackground(jobId: string, limit?: number) {
               headers: {
                 'Content-Type': 'application/json',
               },
-              body: JSON.stringify({ mappingId: mapping.id }),
+              body: JSON.stringify({ mappingId: mapping.id, forceSync }),
             }
           );
 
           const result = await response.json();
 
           if (result.success) {
+            if (result.skipped) {
+              console.log(`  ⏭️ Skipped: ${mapping.nhanhCustomerName} (no change)`);
+              return { success: true, skipped: true, mapping };
+            }
             console.log(`  ✓ Synced: ${mapping.nhanhCustomerName}`);
-            return { success: true, mapping };
+            return { success: true, skipped: false, mapping };
           } else {
             console.error(`  ✗ Failed: ${mapping.nhanhCustomerName}:`, result.error);
             return {
               success: false,
+              skipped: false,
               mapping,
               error: result.error || 'Unknown error',
             };
@@ -134,6 +150,7 @@ async function autoSyncInBackground(jobId: string, limit?: number) {
           console.error(`  ✗ Error: ${mapping.nhanhCustomerName}:`, error.message);
           return {
             success: false,
+            skipped: false,
             mapping,
             error: error.message || 'Unknown error',
           };
@@ -142,11 +159,15 @@ async function autoSyncInBackground(jobId: string, limit?: number) {
 
       // Wait for all in batch to complete
       const batchResults = await Promise.all(batchPromises);
-      
+
       // Aggregate results
-      batchResults.forEach((result) => {
+      batchResults.forEach((result: any) => {
         if (result.success) {
-          results.successful++;
+          if (result.skipped) {
+            results.skipped++;
+          } else {
+            results.successful++;
+          }
         } else {
           results.failed++;
           results.errors.push({
@@ -156,8 +177,11 @@ async function autoSyncInBackground(jobId: string, limit?: number) {
           });
         }
       });
-      
-      console.log(`Batch ${batchNumber}/${totalBatches} completed: ${batchResults.filter(r => r.success).length} successful, ${batchResults.filter(r => !r.success).length} failed`);
+
+      const batchSynced = batchResults.filter((r: any) => r.success && !r.skipped).length;
+      const batchSkipped = batchResults.filter((r: any) => r.skipped).length;
+      const batchFailed = batchResults.filter((r: any) => !r.success).length;
+      console.log(`Batch ${batchNumber}/${totalBatches} completed: ${batchSynced} synced, ${batchSkipped} skipped, ${batchFailed} failed`);
 
       // Update job progress
       await prisma.backgroundJob.update({
@@ -168,16 +192,20 @@ async function autoSyncInBackground(jobId: string, limit?: number) {
           failed: results.failed,
           metadata: {
             limit: limit || 'all',
+            forceSync,
+            skipped: results.skipped,
             currentBatch: batchNumber,
             totalBatches,
           },
         },
-      }).catch(() => {});
+      }).catch(() => { });
 
-      // Delay between batches to avoid rate limiting
+      // OPTIMIZED: Reduce delay when batch is all skipped (no Shopify API calls)
       if (i + BATCH_SIZE < mappings.length) {
-        console.log(`Waiting ${BATCH_DELAY}ms before next batch...`);
-        await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY));
+        const allSkipped = batchSynced === 0 && batchFailed === 0;
+        const actualDelay = allSkipped ? 200 : BATCH_DELAY; // 200ms if all skipped, full delay otherwise
+        console.log(`Waiting ${actualDelay}ms before next batch...${allSkipped ? ' (fast - all skipped)' : ''}`);
+        await new Promise((resolve) => setTimeout(resolve, actualDelay));
       }
     }
 
@@ -194,13 +222,14 @@ async function autoSyncInBackground(jobId: string, limit?: number) {
         completedAt: new Date(),
         metadata: {
           limit: limit || 'all',
+          forceSync,
           results,
         },
       },
-    }).catch(() => {});
+    }).catch(() => { });
   } catch (error: any) {
     console.error('Error in global auto sync:', error);
-    
+
     // Mark job as failed
     await prisma.backgroundJob.update({
       where: { id: jobId },
@@ -209,7 +238,7 @@ async function autoSyncInBackground(jobId: string, limit?: number) {
         error: error.message,
         completedAt: new Date(),
       },
-    }).catch(() => {});
+    }).catch(() => { });
   }
 }
 

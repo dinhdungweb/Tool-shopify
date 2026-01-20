@@ -9,13 +9,18 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/sync/sync-customer
  * Sync a single customer's total spent to Shopify
+ * 
+ * Params:
+ * - mappingId: ID of the customer mapping (required)
+ * - forceSync: If true, skip smart detection and always sync (optional)
  */
 export async function POST(request: NextRequest) {
   let mappingId: string | undefined;
-  
+
   try {
     const body = await request.json();
     mappingId = body.mappingId;
+    const forceSync = body.forceSync === true;
 
     if (!mappingId) {
       return NextResponse.json(
@@ -57,7 +62,34 @@ export async function POST(request: NextRequest) {
       mapping.nhanhCustomerId
     );
 
-    // Update Shopify metafield
+    // SMART DETECTION: Compare with last synced value
+    const currentTotalSpent = Number(mapping.nhanhTotalSpent);
+    const newTotalSpent = Number(totalSpent);
+    const hasChanged = Math.abs(newTotalSpent - currentTotalSpent) >= 1000; // Threshold 1000đ
+
+    // Skip if no significant change (unless forceSync)
+    if (!hasChanged && !forceSync) {
+      // Update lastSyncedAt but skip Shopify API call
+      await prisma.customerMapping.update({
+        where: { id: mappingId },
+        data: {
+          syncStatus: SyncStatus.SYNCED,
+          lastSyncedAt: new Date(),
+          syncError: null,
+        },
+      });
+
+      console.log(`⏭️ Skipped sync for ${mapping.nhanhCustomerName}: totalSpent unchanged (${currentTotalSpent})`);
+
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        reason: `No change in totalSpent (${currentTotalSpent})`,
+        message: "Customer already synced (no change)",
+      });
+    }
+
+    // Update Shopify metafield (only when changed or forceSync)
     await shopifyAPI.syncCustomerTotalSpent(
       mapping.shopifyCustomerId,
       totalSpent
@@ -81,10 +113,14 @@ export async function POST(request: NextRequest) {
         mappingId: mapping.id,
         action: SyncAction.MANUAL_SYNC,
         status: SyncStatus.SYNCED,
-        message: `Synced total spent: ${totalSpent}`,
+        message: forceSync
+          ? `Force synced total spent: ${currentTotalSpent} → ${totalSpent}`
+          : `Synced total spent: ${currentTotalSpent} → ${totalSpent}`,
         metadata: {
+          previousTotalSpent: currentTotalSpent,
           totalSpent,
           shopifyCustomerId: mapping.shopifyCustomerId,
+          forceSync,
         },
       },
     });
@@ -92,6 +128,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: updatedMapping,
+      previousTotalSpent: currentTotalSpent,
       message: "Customer synced successfully",
     });
   } catch (error: any) {

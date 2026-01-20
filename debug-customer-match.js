@@ -1,105 +1,213 @@
-/**
- * Script debug kiểm tra customer matching
- * Usage: node debug-customer-match.js 0794936853
- */
-
-const { PrismaClient } = require("@prisma/client");
+// Debug script to check why customer 0385890707 is not matching
+const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-async function debugMatch(phone) {
-    console.log(`\n🔍 Debugging customer match for phone: ${phone}\n`);
-    console.log("=".repeat(60));
+// Helper to normalize phone - same logic as auto-match
+function normalizePhone(phone) {
+  if (!phone) return [];
+  const cleaned = phone.replace(/[\s\-\(\)\+]/g, "");
+  const variations = new Set([cleaned]);
 
-    // Normalize phone số
-    const normalizedPhone = phone.replace(/^0/, "").replace(/\D/g, "");
-    console.log(`📱 Normalized phone: ${normalizedPhone}`);
+  if (cleaned.startsWith("0")) {
+    variations.add("84" + cleaned.substring(1));
+    variations.add(cleaned.substring(1));
+  } else if (cleaned.startsWith("84")) {
+    variations.add("0" + cleaned.substring(2));
+    variations.add(cleaned.substring(2));
+  } else if (cleaned.length >= 9 && cleaned.length <= 10) {
+    variations.add("0" + cleaned);
+    variations.add("84" + cleaned);
+  }
 
-    // Tìm trong Nhanh
-    console.log("\n--- NHANH CUSTOMERS ---");
-    const nhanhCustomers = await prisma.nhanhCustomer.findMany({
-        where: {
-            OR: [
-                { phone: { contains: phone } },
-                { phone: { contains: normalizedPhone } },
-            ]
-        },
-        take: 5,
-    });
-
-    if (nhanhCustomers.length === 0) {
-        console.log("❌ Không tìm thấy customer trong Nhanh");
-    } else {
-        nhanhCustomers.forEach(c => {
-            console.log(`✅ Found: ${c.name} | Phone: ${c.phone} | ID: ${c.id}`);
-        });
-    }
-
-    // Tìm trong Shopify
-    console.log("\n--- SHOPIFY CUSTOMERS ---");
-    const shopifyCustomers = await prisma.shopifyCustomer.findMany({
-        where: {
-            OR: [
-                { phone: { contains: phone } },
-                { phone: { contains: normalizedPhone } },
-                { defaultAddressPhone: { contains: phone } },
-                { defaultAddressPhone: { contains: normalizedPhone } },
-                { phone: { contains: `+84${normalizedPhone}` } },
-                { defaultAddressPhone: { contains: `+84${normalizedPhone}` } },
-            ]
-        },
-        take: 5,
-    });
-
-    if (shopifyCustomers.length === 0) {
-        console.log("❌ Không tìm thấy customer trong Shopify");
-        console.log("\n🔎 Thử tìm với các format khác...");
-
-        // Tìm với like pattern
-        const patterns = [
-            `%${normalizedPhone}%`,
-            `%${phone}%`,
-            `%+84${normalizedPhone}%`,
-            `%84${normalizedPhone}%`,
-        ];
-
-        for (const pattern of patterns) {
-            const result = await prisma.$queryRawUnsafe(`
-        SELECT id, phone, "defaultAddressPhone", email, "firstName", "lastName"
-        FROM shopify_customers
-        WHERE phone LIKE $1 OR "defaultAddressPhone" LIKE $1
-        LIMIT 3
-      `, pattern);
-
-            if (result.length > 0) {
-                console.log(`   Pattern "${pattern}" found ${result.length} results:`);
-                result.forEach(r => {
-                    console.log(`   - ${r.firstName} ${r.lastName} | Phone: ${r.phone} | Addr: ${r.defaultAddressPhone}`);
-                });
-            }
-        }
-    } else {
-        shopifyCustomers.forEach(c => {
-            console.log(`✅ Found: ${c.firstName} ${c.lastName} | Phone: ${c.phone} | AddrPhone: ${c.defaultAddressPhone} | ID: ${c.id}`);
-        });
-    }
-
-    // Kiểm tra mapping hiện tại
-    console.log("\n--- CUSTOMER MAPPING ---");
-    if (nhanhCustomers.length > 0) {
-        const mapping = await prisma.customerMapping.findUnique({
-            where: { nhanhCustomerId: nhanhCustomers[0].id }
-        });
-
-        if (mapping) {
-            console.log(`✅ Đã có mapping: Nhanh ${mapping.nhanhCustomerId} -> Shopify ${mapping.shopifyCustomerId}`);
-        } else {
-            console.log("❌ Chưa có mapping");
-        }
-    }
-
-    console.log("\n" + "=".repeat(60));
-    await prisma.$disconnect();
+  return Array.from(variations);
 }
 
-const phone = process.argv[2] || "0794936853";
-debugMatch(phone);
+// Helper to extract phones from note
+function extractPhonesFromNote(note) {
+  if (!note) return [];
+  const phoneRegex = /(?:\+?84|0)(?:\d[\s\-\.]?){8,10}\d/g;
+  const matches = note.match(phoneRegex);
+  if (!matches) return [];
+
+  const phones = [];
+  matches.forEach(match => {
+    const normalized = match.replace(/[\s\-\(\)\+\.]/g, "");
+    phones.push(...normalizePhone(normalized));
+  });
+
+  return [...new Set(phones)];
+}
+
+async function debugCustomer() {
+  try {
+    const searchPhone = "0385890707";
+    console.log(`\n🔍 Debugging customer with phone: ${searchPhone}`);
+    console.log("=".repeat(80));
+
+    // 1. Find Nhanh customer
+    console.log("\n📋 Step 1: Finding Nhanh customer...");
+    const nhanhCustomer = await prisma.nhanhCustomer.findFirst({
+      where: {
+        phone: searchPhone
+      },
+      include: {
+        mapping: true
+      }
+    });
+
+    if (!nhanhCustomer) {
+      console.log("❌ Nhanh customer not found!");
+      return;
+    }
+
+    console.log("✅ Found Nhanh customer:");
+    console.log(`   - ID: ${nhanhCustomer.id}`);
+    console.log(`   - Name: ${nhanhCustomer.name}`);
+    console.log(`   - Phone: ${nhanhCustomer.phone}`);
+    console.log(`   - Email: ${nhanhCustomer.email || 'N/A'}`);
+    console.log(`   - Has mapping: ${nhanhCustomer.mapping ? 'YES' : 'NO'}`);
+
+    if (nhanhCustomer.mapping) {
+      console.log(`   - Mapping status: ${nhanhCustomer.mapping.syncStatus}`);
+      console.log(`   - Shopify customer ID: ${nhanhCustomer.mapping.shopifyCustomerId}`);
+      console.log("\n⚠️  Customer already has a mapping!");
+      return;
+    }
+
+    // 2. Generate phone variations
+    console.log("\n📞 Step 2: Generating phone variations...");
+    const phoneVariations = normalizePhone(nhanhCustomer.phone);
+    console.log(`   Generated ${phoneVariations.length} variations:`);
+    phoneVariations.forEach(v => console.log(`   - ${v}`));
+
+    // 3. Search Shopify customers by primary phone
+    console.log("\n🔍 Step 3: Searching Shopify customers by primary phone...");
+    const shopifyByPhone = await prisma.shopifyCustomer.findMany({
+      where: {
+        phone: {
+          in: phoneVariations
+        }
+      },
+      select: {
+        id: true,
+        phone: true,
+        defaultAddressPhone: true,
+        note: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+      }
+    });
+
+    console.log(`   Found ${shopifyByPhone.length} customers by primary phone`);
+    shopifyByPhone.forEach(c => {
+      console.log(`   - ${c.firstName} ${c.lastName} (${c.phone})`);
+    });
+
+    // 4. Search by defaultAddressPhone
+    console.log("\n🔍 Step 4: Searching by defaultAddressPhone...");
+    const shopifyByAddressPhone = await prisma.shopifyCustomer.findMany({
+      where: {
+        defaultAddressPhone: {
+          in: phoneVariations
+        }
+      },
+      select: {
+        id: true,
+        phone: true,
+        defaultAddressPhone: true,
+        note: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+      }
+    });
+
+    console.log(`   Found ${shopifyByAddressPhone.length} customers by address phone`);
+    shopifyByAddressPhone.forEach(c => {
+      console.log(`   - ${c.firstName} ${c.lastName} (address: ${c.defaultAddressPhone})`);
+    });
+
+    // 5. Search in notes
+    console.log("\n🔍 Step 5: Searching in customer notes...");
+    const allShopifyCustomers = await prisma.shopifyCustomer.findMany({
+      where: {
+        note: {
+          not: null,
+          not: ""
+        }
+      },
+      select: {
+        id: true,
+        phone: true,
+        defaultAddressPhone: true,
+        note: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+      }
+    });
+
+    const matchesInNotes = [];
+    for (const customer of allShopifyCustomers) {
+      const phonesInNote = extractPhonesFromNote(customer.note);
+      const hasMatch = phoneVariations.some(v => phonesInNote.includes(v));
+      if (hasMatch) {
+        matchesInNotes.push(customer);
+      }
+    }
+
+    console.log(`   Found ${matchesInNotes.length} customers with phone in notes`);
+    matchesInNotes.forEach(c => {
+      console.log(`   - ${c.firstName} ${c.lastName}`);
+      console.log(`     Note: ${c.note.substring(0, 100)}...`);
+    });
+
+    // 6. Combine all matches
+    console.log("\n📊 Step 6: Combining all matches...");
+    const allMatches = new Map();
+    
+    [...shopifyByPhone, ...shopifyByAddressPhone, ...matchesInNotes].forEach(c => {
+      allMatches.set(c.id, c);
+    });
+
+    const uniqueMatches = Array.from(allMatches.values());
+    console.log(`   Total unique matches: ${uniqueMatches.length}`);
+
+    // 7. Determine match result
+    console.log("\n🎯 Step 7: Match result...");
+    if (uniqueMatches.length === 0) {
+      console.log("❌ NO MATCH: No Shopify customer found with this phone");
+      console.log("\n💡 Possible reasons:");
+      console.log("   1. Phone number doesn't exist in Shopify");
+      console.log("   2. Phone format is different");
+      console.log("   3. Customer hasn't been pulled from Shopify yet");
+    } else if (uniqueMatches.length === 1) {
+      console.log("✅ PERFECT MATCH: Found exactly 1 Shopify customer");
+      const match = uniqueMatches[0];
+      console.log(`   - Shopify ID: ${match.id}`);
+      console.log(`   - Name: ${match.firstName} ${match.lastName}`);
+      console.log(`   - Phone: ${match.phone || 'N/A'}`);
+      console.log(`   - Address Phone: ${match.defaultAddressPhone || 'N/A'}`);
+      console.log(`   - Email: ${match.email || 'N/A'}`);
+      console.log("\n✨ This customer SHOULD be auto-matched!");
+    } else {
+      console.log(`⚠️  MULTIPLE MATCHES: Found ${uniqueMatches.length} Shopify customers`);
+      console.log("   Auto-match skipped to avoid incorrect mapping");
+      console.log("\n   Matched customers:");
+      uniqueMatches.forEach((c, i) => {
+        console.log(`   ${i + 1}. ${c.firstName} ${c.lastName} (${c.phone || c.defaultAddressPhone})`);
+      });
+      console.log("\n💡 Manual mapping required to choose the correct customer");
+    }
+
+    console.log("\n" + "=".repeat(80));
+
+  } catch (error) {
+    console.error("Error:", error);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+debugCustomer();

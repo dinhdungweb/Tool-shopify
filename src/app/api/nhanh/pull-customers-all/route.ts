@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     // Get filters from request body
     const body = await request.json().catch(() => ({}));
     const { type, lastBoughtDateFrom, lastBoughtDateTo, forceRestart } = body;
-    
+
     // Generate progressId based on filters
     const filterSignature = (type || lastBoughtDateFrom || lastBoughtDateTo)
       ? JSON.stringify({ type, lastBoughtDateFrom, lastBoughtDateTo })
@@ -33,11 +33,11 @@ export async function POST(request: NextRequest) {
     const progressId = filterSignature
       ? `nhanh_customers_${Buffer.from(filterSignature).toString('base64').substring(0, 20)}`
       : "nhanh_customers";
-    
+
     const progress = await prisma.pullProgress.findUnique({
       where: { id: progressId },
     });
-    
+
     // If forceRestart, delete progress and allow restart
     if (forceRestart) {
       if (progress) {
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
         }
       }
     }
-    
+
     // Create background job for tracking
     const job = await prisma.backgroundJob.create({
       data: {
@@ -114,11 +114,11 @@ async function pullAllCustomersInBackground(filters?: {
   lastBoughtDateFrom?: string;
   lastBoughtDateTo?: string;
 }, jobId?: string) {
-  const filterLog = filters && Object.keys(filters).length > 0 
+  const filterLog = filters && Object.keys(filters).length > 0
     ? ` with filters: ${JSON.stringify(filters)}`
     : "";
   console.log(`🚀 Starting background pull${filterLog}...`);
-  
+
   const startTime = Date.now();
   let totalCreated = 0;
   let totalUpdated = 0;
@@ -146,13 +146,13 @@ async function pullAllCustomersInBackground(filters?: {
   // Check if filters match previous pull
   const previousFilters = progress?.metadata ? JSON.parse(progress.metadata as string) : null;
   const filtersMatch = previousFilters && JSON.stringify(previousFilters) === filterSignature;
-  
+
   // Only use incremental mode if explicitly requested (not on regular pull)
   // For now, always start fresh when pull is completed
   const isIncremental = false; // Disabled for now - always start fresh
-  
+
   let nextCursor: any = undefined;
-  
+
   // Only resume if pull is incomplete
   if (progress && !progress.isCompleted && progress.nextCursor) {
     console.log(`📍 RESUMING: Continuing from last cursor (${progress.totalPulled} customers already pulled)`);
@@ -201,23 +201,23 @@ async function pullAllCustomersInBackground(filters?: {
           where: { id: { in: customerIds } },
           select: { id: true, lastPulledAt: true },
         });
-        
+
         const existingMap = new Map(existingCustomers.map(c => [c.id, c.lastPulledAt]));
-        
+
         const toCreate: typeof response.customers = [];
         const toUpdate: typeof response.customers = [];
         const toSkip: typeof response.customers = [];
-        
+
         for (const customer of response.customers) {
           const lastPulled = existingMap.get(customer.id);
-          
+
           if (!lastPulled) {
             // New customer
             toCreate.push(customer);
           } else {
             // Check if needs update
             const hoursSinceLastPull = (now.getTime() - lastPulled.getTime()) / (1000 * 60 * 60);
-            
+
             if (hoursSinceLastPull < 20) {
               // Fresh customer, skip
               toSkip.push(customer);
@@ -227,7 +227,7 @@ async function pullAllCustomersInBackground(filters?: {
             }
           }
         }
-        
+
         // Bulk create new customers
         if (toCreate.length > 0) {
           await prisma.nhanhCustomer.createMany({
@@ -247,11 +247,11 @@ async function pullAllCustomersInBackground(filters?: {
           });
           batchCreated = toCreate.length;
         }
-        
+
         // Bulk update stale customers (ULTRA OPTIMIZED: Max batches + parallel processing)
         if (toUpdate.length > 0) {
           const updatePromises = [];
-          
+
           for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
             const batch = toUpdate.slice(i, i + updateBatchSize);
             updatePromises.push(
@@ -275,30 +275,53 @@ async function pullAllCustomersInBackground(filters?: {
               )
             );
           }
-          
+
           // Execute all update batches in parallel
           await Promise.all(updatePromises);
           batchUpdated = toUpdate.length;
         }
-        
+
         batchSkipped = toSkip.length;
-        
+
         console.log(
           `💾 Batch ${batchCount}: ${batchCreated} new, ${batchUpdated} updated, ${batchSkipped} skipped (fresh)`
         );
       } else {
-        // FULL MODE: Upsert all customers
-        const existingIds = await prisma.nhanhCustomer.findMany({
+        // FULL MODE: Upsert all customers with SMART CHANGE DETECTION
+        const existingCustomers = await prisma.nhanhCustomer.findMany({
           where: {
             id: { in: response.customers.map(c => c.id) }
           },
-          select: { id: true }
+          select: { id: true, name: true, phone: true, email: true, totalSpent: true }
         });
-        
-        const existingIdSet = new Set(existingIds.map(c => c.id));
-        const toCreate = response.customers.filter(c => !existingIdSet.has(c.id));
-        const toUpdate = response.customers.filter(c => existingIdSet.has(c.id));
-        
+
+        const existingMap = new Map(existingCustomers.map(c => [c.id, c]));
+        const toCreate: typeof response.customers = [];
+        const toUpdate: typeof response.customers = [];
+        const toSkip: typeof response.customers = [];
+
+        // Smart comparison - only update if data changed
+        for (const customer of response.customers) {
+          const existing = existingMap.get(customer.id);
+
+          if (!existing) {
+            // New customer
+            toCreate.push(customer);
+          } else {
+            // Check if any important field changed (threshold 1000đ for totalSpent)
+            const totalSpentChanged = Math.abs(Number(customer.totalSpent) - Number(existing.totalSpent)) >= 1000;
+            const nameChanged = customer.name !== existing.name;
+            const phoneChanged = (customer.phone || null) !== existing.phone;
+            const emailChanged = (customer.email || null) !== existing.email;
+
+            if (totalSpentChanged || nameChanged || phoneChanged || emailChanged) {
+              toUpdate.push(customer);
+            } else {
+              toSkip.push(customer);
+            }
+          }
+        }
+
         // Bulk create new customers
         if (toCreate.length > 0) {
           await prisma.nhanhCustomer.createMany({
@@ -318,11 +341,11 @@ async function pullAllCustomersInBackground(filters?: {
           });
           batchCreated = toCreate.length;
         }
-        
-        // Bulk update existing customers (ULTRA OPTIMIZED: Max batches + parallel processing)
+
+        // Bulk update ONLY changed customers (ULTRA OPTIMIZED: Max batches + parallel processing)
         if (toUpdate.length > 0) {
           const updatePromises = [];
-          
+
           for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
             const batch = toUpdate.slice(i, i + updateBatchSize);
             updatePromises.push(
@@ -346,14 +369,23 @@ async function pullAllCustomersInBackground(filters?: {
               )
             );
           }
-          
+
           // Execute all update batches in parallel
           await Promise.all(updatePromises);
           batchUpdated = toUpdate.length;
         }
-        
+
+        // Update only lastPulledAt for unchanged customers (efficient bulk update)
+        if (toSkip.length > 0) {
+          await prisma.nhanhCustomer.updateMany({
+            where: { id: { in: toSkip.map(c => c.id) } },
+            data: { lastPulledAt: now }
+          });
+          batchSkipped = toSkip.length;
+        }
+
         console.log(
-          `💾 Batch ${batchCount}: ${batchCreated} created, ${batchUpdated} updated`
+          `💾 Batch ${batchCount}: ${batchCreated} new, ${batchUpdated} changed, ${batchSkipped} unchanged`
         );
       }
 
@@ -371,7 +403,7 @@ async function pullAllCustomersInBackground(filters?: {
         const estimatedSpeed = totalProcessed > 0 && elapsedSeconds > 0
           ? (totalProcessed / elapsedSeconds).toFixed(1)
           : "0";
-        
+
         await prisma.backgroundJob.update({
           where: { id: jobId },
           data: {
@@ -388,7 +420,7 @@ async function pullAllCustomersInBackground(filters?: {
               estimatedSpeed: `${estimatedSpeed} customers/sec`,
             },
           },
-        }).catch(() => {});
+        }).catch(() => { });
       }
 
       // Save progress with filter metadata
@@ -437,7 +469,7 @@ async function pullAllCustomersInBackground(filters?: {
     // Calculate duration and speed
     const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
     const speed = totalProcessed > 0 ? (totalProcessed / durationSeconds).toFixed(1) : "0";
-    
+
     // Format duration nicely
     const formatDuration = (seconds: number) => {
       if (seconds < 60) return `${seconds}s`;
@@ -445,7 +477,7 @@ async function pullAllCustomersInBackground(filters?: {
       return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
     };
     const duration = formatDuration(durationSeconds);
-    
+
     console.log(`⏱️  Duration: ${duration}, Speed: ${speed} customers/sec`);
 
     // Update job as completed
@@ -468,7 +500,7 @@ async function pullAllCustomersInBackground(filters?: {
             speed: `${speed} customers/sec`,
           },
         },
-      }).catch(() => {});
+      }).catch(() => { });
     }
   } catch (error) {
     console.error("❌ Error in background pull:", error);
@@ -482,7 +514,7 @@ async function pullAllCustomersInBackground(filters?: {
           error: error instanceof Error ? error.message : String(error),
           completedAt: new Date(),
         },
-      }).catch(() => {});
+      }).catch(() => { });
     }
     // Save error state
     await prisma.pullProgress.upsert({

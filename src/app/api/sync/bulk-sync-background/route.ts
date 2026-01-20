@@ -61,6 +61,7 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string) {
   const startTime = Date.now();
 
   let successful = 0;
+  let skipped = 0;
   let failed = 0;
 
   // Balanced settings - avoid Shopify rate limits
@@ -79,11 +80,6 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string) {
 
     const batchPromises = batchIds.map(async (mappingId, index) => {
       try {
-        // Add small delay between requests in same batch to avoid Shopify throttling
-        if (index > 0) {
-          await new Promise(resolve => setTimeout(resolve, 200 * index)); // 200ms stagger
-        }
-
         const mapping = await prisma.customerMapping.findUnique({
           where: { id: mappingId },
           include: {
@@ -98,6 +94,31 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string) {
 
         // Use totalSpent from database instead of calling API
         const totalSpent = Number(mapping.nhanhCustomer.totalSpent);
+        const currentTotalSpent = Number(mapping.nhanhTotalSpent);
+
+        // SMART DETECTION: Skip if no significant change (threshold 1000đ)
+        const hasChanged = Math.abs(totalSpent - currentTotalSpent) >= 1000;
+
+        if (!hasChanged) {
+          // Skip Shopify API call - NO DELAY NEEDED
+          await prisma.customerMapping.update({
+            where: { id: mappingId },
+            data: {
+              syncStatus: SyncStatus.SYNCED,
+              lastSyncedAt: new Date(),
+              syncError: null,
+            },
+          });
+          skipped++;
+          return;
+        }
+
+        // ONLY delay when actually calling Shopify API (to avoid rate limit)
+        if (index > 0) {
+          await new Promise(resolve => setTimeout(resolve, 200 * index)); // 200ms stagger
+        }
+
+        // Only call Shopify API when changed
         await shopifyAPI.syncCustomerTotalSpent(mapping.shopifyCustomerId, totalSpent);
 
         await prisma.customerMapping.update({
@@ -116,8 +137,8 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string) {
             mappingId: mapping.id,
             action: SyncAction.BULK_SYNC,
             status: SyncStatus.SYNCED,
-            message: `Background synced: ${totalSpent}`,
-            metadata: { totalSpent, shopifyCustomerId: mapping.shopifyCustomerId },
+            message: `Background synced: ${currentTotalSpent} → ${totalSpent}`,
+            metadata: { previousTotalSpent: currentTotalSpent, totalSpent, shopifyCustomerId: mapping.shopifyCustomerId },
           },
         });
 
@@ -125,12 +146,12 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string) {
       } catch (error: any) {
         failed++;
         const errorMessage = error.message || "Unknown error";
-        
+
         // Log rate limit errors specifically
         if (errorMessage.includes("Rate Limit") || errorMessage.includes("429")) {
           console.warn(`⚠️ Rate limit hit for customer ${mappingId}, will retry later`);
         }
-        
+
         try {
           await prisma.customerMapping.update({
             where: { id: mappingId },
@@ -150,12 +171,12 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string) {
 
     // Update job progress every 10 batches
     if (batchIndex % 10 === 0 || batchIndex === totalBatches - 1) {
-      const processed = successful + failed;
+      const processed = successful + skipped + failed;
       const elapsed = (Date.now() - startTime) / 1000;
       const speed = processed > 0 ? (processed / elapsed).toFixed(1) : "0";
       const remaining = mappingIds.length - processed;
       const eta = processed > 0 ? Math.ceil(remaining / (processed / elapsed)) : 0;
-      
+
       await prisma.backgroundJob.update({
         where: { id: jobId },
         data: {
@@ -163,11 +184,12 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string) {
           successful,
           failed,
           metadata: {
+            skipped,
             speed: `${speed} customers/sec`,
             eta: eta > 60 ? `~${Math.ceil(eta / 60)} min` : `~${eta} sec`,
           },
         },
-      }).catch(() => {}); // Ignore errors
+      }).catch(() => { }); // Ignore errors
     }
 
     // Shorter delay for background processing
@@ -180,7 +202,8 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string) {
   const speed = (mappingIds.length / durationSeconds).toFixed(1);
   const durationFormatted = durationSeconds < 60 ? `${durationSeconds}s` : `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;
   console.log(`🎉 Background bulk sync completed in ${durationFormatted} (${speed} customers/sec)!`);
-  console.log(`   ✅ Successful: ${successful}`);
+  console.log(`   ✅ Synced: ${successful}`);
+  console.log(`   ⏭️ Skipped: ${skipped} (unchanged)`);
   console.log(`   ❌ Failed: ${failed}`);
 
   // Update job as completed
@@ -188,14 +211,15 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string) {
     where: { id: jobId },
     data: {
       status: "COMPLETED",
-      processed: successful + failed,
+      processed: successful + skipped + failed,
       successful,
       failed,
       completedAt: new Date(),
       metadata: {
+        skipped,
         duration: durationFormatted,
         speed: `${speed} customers/sec`,
       },
     },
-  }).catch(() => {}); // Ignore errors
+  }).catch(() => { }); // Ignore errors
 }

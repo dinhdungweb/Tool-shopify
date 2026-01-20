@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
     const results = {
       total: mappingIds.length,
       successful: 0,
+      skipped: 0,
       failed: 0,
       details: [] as any[],
     };
@@ -70,7 +71,33 @@ export async function POST(request: NextRequest) {
             mapping.nhanhCustomerId
           );
 
-          // Update Shopify metafield
+          // SMART CHANGE DETECTION: Compare with current value - skip if no significant change
+          const currentTotalSpent = Number(mapping.nhanhTotalSpent);
+          const newTotalSpent = Number(totalSpent);
+          const hasChanged = Math.abs(newTotalSpent - currentTotalSpent) >= 1000; // Threshold 1000đ
+
+          if (!hasChanged) {
+            // No significant change, skip Shopify API call but still mark as synced
+            await prisma.customerMapping.update({
+              where: { id: mappingId },
+              data: {
+                syncStatus: SyncStatus.SYNCED,
+                lastSyncedAt: new Date(),
+                syncError: null,
+              },
+            });
+
+            console.log(`⏭️ Skipped ${mappingId}: totalSpent unchanged (${currentTotalSpent})`);
+
+            return {
+              mappingId,
+              success: true,
+              skipped: true,
+              reason: `No change in totalSpent (${currentTotalSpent})`,
+            };
+          }
+
+          // Update Shopify metafield (only when changed)
           await shopifyAPI.syncCustomerTotalSpent(
             mapping.shopifyCustomerId,
             totalSpent
@@ -94,8 +121,9 @@ export async function POST(request: NextRequest) {
               mappingId: mapping.id,
               action: SyncAction.BULK_SYNC,
               status: SyncStatus.SYNCED,
-              message: `Bulk synced total spent: ${totalSpent}`,
+              message: `Bulk synced total spent: ${currentTotalSpent} → ${totalSpent}`,
               metadata: {
+                previousTotalSpent: currentTotalSpent,
                 totalSpent,
                 shopifyCustomerId: mapping.shopifyCustomerId,
               },
@@ -106,6 +134,7 @@ export async function POST(request: NextRequest) {
             mappingId,
             success: true,
             totalSpent,
+            previousTotalSpent: currentTotalSpent,
           };
         } catch (error: any) {
           console.error(`Error syncing mapping ${mappingId}:`, error);
@@ -147,16 +176,20 @@ export async function POST(request: NextRequest) {
       const batchResults = await Promise.all(batchPromises);
 
       // Aggregate results
-      batchResults.forEach((result) => {
+      batchResults.forEach((result: any) => {
         if (result.success) {
-          results.successful++;
+          if (result.skipped) {
+            results.skipped++;
+          } else {
+            results.successful++;
+          }
         } else {
           results.failed++;
         }
         results.details.push(result);
       });
 
-      console.log(`  ✅ Batch ${batchIndex + 1} completed: ${results.successful} successful, ${results.failed} failed`);
+      console.log(`  ✅ Batch ${batchIndex + 1} completed: ${results.successful} synced, ${results.skipped} skipped, ${results.failed} failed`);
 
       // Add delay between batches to respect rate limits
       if (batchIndex < totalBatches - 1) {
@@ -172,7 +205,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: results,
-      message: `Bulk sync completed: ${results.successful} successful, ${results.failed} failed`,
+      message: `Bulk sync completed: ${results.successful} synced, ${results.skipped} skipped (unchanged), ${results.failed} failed`,
     });
   } catch (error: any) {
     console.error("Error in bulk sync:", error);
