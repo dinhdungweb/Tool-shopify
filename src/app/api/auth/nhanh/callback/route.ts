@@ -65,14 +65,14 @@ export async function GET(request: NextRequest) {
 
         console.log(`Exchanging accessCode for token with appId: ${appId}`);
 
-        const tokenResponse = await fetch("https://pos.open.nhanh.vn/v3.0/app/getaccesstoken", {
+        // Nhanh v3.0 requires appId as query parameter
+        // Body should contain only secretKey and accessCode
+        const tokenResponse = await fetch(`https://pos.open.nhanh.vn/v3.0/app/getaccesstoken?appId=${appId}`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
-                version: NHANH_API_VERSION,
-                appId: appId,
                 accessCode: accessCode,
                 secretKey: secretKey,
             }),
