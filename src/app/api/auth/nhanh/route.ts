@@ -11,7 +11,7 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-const NHANH_API_VERSION = "2.0";
+const NHANH_API_VERSION = "3.0";
 
 export async function GET(request: NextRequest) {
     try {
