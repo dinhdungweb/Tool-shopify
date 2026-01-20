@@ -13,7 +13,7 @@ import { clearApiConfigCache } from "@/lib/api-config";
 
 export const dynamic = "force-dynamic";
 
-const NHANH_API_VERSION = "3.0";
+const NHANH_API_VERSION = "2.0";
 
 export async function GET(request: NextRequest) {
     try {
@@ -54,8 +54,18 @@ export async function GET(request: NextRequest) {
         }
 
         // Exchange accessCode for accessToken using Nhanh API
-        // POST to https://open.nhanh.vn/api/access/token
-        const tokenResponse = await fetch("https://open.nhanh.vn/api/access/token", {
+        // v2.0: POST to https://pos.open.nhanh.vn/api/oauth/access_token
+        // Requires: version, appId, accessCode, secretKey
+        const secretKey = process.env.NHANH_SECRET_KEY;
+
+        if (!secretKey) {
+            console.error("NHANH_SECRET_KEY not configured");
+            return redirectWithError("NHANH_SECRET_KEY not configured");
+        }
+
+        console.log(`Exchanging accessCode for token with appId: ${appId}`);
+
+        const tokenResponse = await fetch("https://pos.open.nhanh.vn/api/oauth/access_token", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -64,6 +74,7 @@ export async function GET(request: NextRequest) {
                 version: NHANH_API_VERSION,
                 appId: appId,
                 accessCode: accessCode,
+                secretKey: secretKey,
             }),
         });
 
