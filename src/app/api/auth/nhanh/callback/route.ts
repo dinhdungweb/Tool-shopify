@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
 
         console.log(`Exchanging accessCode for token with appId: ${appId}`);
 
-        const tokenResponse = await fetch("https://pos.open.nhanh.vn/api/oauth/access_token", {
+        const tokenResponse = await fetch("https://pos.open.nhanh.vn/v3.0/app/getaccesstoken", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
