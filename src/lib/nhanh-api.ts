@@ -41,7 +41,7 @@ class NhanhAPI {
   private async request<T>(
     endpoint: string,
     data: Record<string, any> = {},
-    retries: number = 3
+    retries: number = 5
   ): Promise<T> {
     let lastError: any;
     const appId = await this.getAppId();
@@ -69,12 +69,25 @@ class NhanhAPI {
       } catch (error: any) {
         lastError = error;
         const status = error.response?.status;
+        const errorMessage = typeof error.message === 'string' ? error.message : JSON.stringify(error.message);
 
-        // Retry on 429 Rate Limit or 5xx errors
-        if ((status === 429 || status >= 500) && attempt < retries) {
-          const delay = Math.pow(2, attempt) * 1000; // Exponential: 2s, 4s, 8s
-          console.log(
-            `Nhanh API ${status} error, retrying in ${delay}ms... (attempt ${attempt}/${retries})`
+        // Check for rate limit in error message (Nhanh implementation often returns 200 with error message)
+        // Also check for "System error" or "Internal Server Error" which might be transient
+        const isRateLimit =
+          status === 429 ||
+          errorMessage.toLowerCase().includes("rate limit") ||
+          errorMessage.toLowerCase().includes("quá tải") || // Vietnamese "overloaded"
+          errorMessage.toLowerCase().includes("busy");
+
+        // Retry on 429 Rate Limit, 5xx errors, or recognized rate limit messages
+        if ((isRateLimit || (status && status >= 500)) && attempt < retries) {
+          // Exponential backoff with jitter: 2s, 4s, 8s... + random jitter
+          const baseDelay = Math.pow(2, attempt) * 1000;
+          const jitter = Math.random() * 1000;
+          const delay = baseDelay + jitter;
+
+          console.warn(
+            `⚠️ Nhanh API ${isRateLimit ? 'Rate Limit' : status} error, retrying in ${Math.round(delay)}ms... (attempt ${attempt}/${retries}) - ${errorMessage}`
           );
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
@@ -100,12 +113,12 @@ class NhanhAPI {
   async getCustomers(
     params: NhanhCustomerSearchParams = {}
   ): Promise<NhanhCustomerListResponse> {
-    const { 
-      page = 1, 
-      limit = 50, 
-      name, 
-      phone, 
-      email, 
+    const {
+      page = 1,
+      limit = 50,
+      name,
+      phone,
+      email,
       next,
       type,
       lastBoughtDateFrom,
@@ -135,7 +148,7 @@ class NhanhAPI {
         size: limit,
       },
     };
-    
+
     console.log(`🔍 Nhanh API Request: size=${limit}, filters=`, JSON.stringify(filters));
 
     // Add next cursor if provided (for subsequent pages)
@@ -148,14 +161,14 @@ class NhanhAPI {
     // API returns { data: [...], paginator: { next: {...} } }
     const responseData = apiResponse.data || [];
     const responsePaginator = apiResponse.paginator || {};
-    
+
     console.log("Nhanh API Response:", {
       requestedSize: limit,
       actualReceived: Array.isArray(responseData) ? responseData.length : 0,
       hasNext: !!responsePaginator.next,
       nextCursor: responsePaginator.next ? `{id: ${responsePaginator.next.id}}` : null,
     });
-    
+
     // Transform response to match our interface
     const customers: NhanhCustomer[] = (Array.isArray(responseData) ? responseData : []).map((c: any) => ({
       id: c.id?.toString() || "",
@@ -212,7 +225,7 @@ class NhanhAPI {
     while (hasMore) {
       pageCount++;
       console.log(`Fetching page ${pageCount}...`);
-      
+
       const response = await this.getCustomers({
         limit,
         next: nextCursor,
@@ -296,16 +309,16 @@ class NhanhAPI {
       };
 
       const apiResponse = await this.request<any>("/v3.0/customer/list", requestData);
-      
+
       // API returns { data: [...], paginator: {...} }
       const customers = apiResponse.data || [];
-      
+
       if (customers.length > 0 && customers[0].id === parseInt(customerId)) {
         const totalAmount = parseFloat(customers[0].totalAmount?.toString() || "0");
         console.log(`Customer ${customerId} total spent: ${totalAmount}`);
         return totalAmount;
       }
-      
+
       console.warn(`Customer ${customerId} not found in API response`);
       return 0;
     } catch (error) {
