@@ -97,7 +97,7 @@ class NhanhAPI {
           }
 
           console.warn(
-            `⚠️ Nhanh API ${isAppRateLimit ? 'ERR_429' : status} error, retrying in ${Math.round(delay)}ms... (attempt ${attempt}/${retries}) - ${errorMessage}`
+            `⚠️ Nhanh API ${isAppRateLimit ? 'ERR_429' : (status || 'Unknown')} error, retrying in ${Math.round(delay)}ms... (attempt ${attempt}/${retries}) - ${errorMessage}`
           );
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue;

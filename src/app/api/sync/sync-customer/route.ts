@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
     // SMART DETECTION: Compare with last synced value
     const currentTotalSpent = Number(mapping.nhanhTotalSpent);
     const newTotalSpent = Number(totalSpent);
-    const hasChanged = Math.abs(newTotalSpent - currentTotalSpent) >= 1000; // Threshold 1000đ
+    const hasChanged = Math.abs(newTotalSpent - currentTotalSpent) >= 1000 || !mapping.lastSyncedAt; // Threshold 1000đ
 
     // Skip if no significant change (unless forceSync)
     if (!hasChanged && !forceSync) {

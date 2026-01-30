@@ -96,8 +96,8 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string) {
         const totalSpent = Number(mapping.nhanhCustomer.totalSpent);
         const currentTotalSpent = Number(mapping.nhanhTotalSpent);
 
-        // SMART DETECTION: Skip if no significant change (threshold 1000đ)
-        const hasChanged = Math.abs(totalSpent - currentTotalSpent) >= 1000;
+        // SMART DETECTION: Skip if no significant change (threshold 1000đ) OR never synced
+        const hasChanged = Math.abs(totalSpent - currentTotalSpent) >= 1000 || !mapping.lastSyncedAt;
 
         if (!hasChanged) {
           // Skip Shopify API call - NO DELAY NEEDED

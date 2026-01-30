@@ -71,10 +71,10 @@ export async function POST(request: NextRequest) {
             mapping.nhanhCustomerId
           );
 
-          // SMART CHANGE DETECTION: Compare with current value - skip if no significant change
+          // SMART CHANGE DETECTION: Compare with current value - skip if no significant change OR never synced
           const currentTotalSpent = Number(mapping.nhanhTotalSpent);
           const newTotalSpent = Number(totalSpent);
-          const hasChanged = Math.abs(newTotalSpent - currentTotalSpent) >= 1000; // Threshold 1000đ
+          const hasChanged = Math.abs(newTotalSpent - currentTotalSpent) >= 1000 || !mapping.lastSyncedAt; // Threshold 1000đ
 
           if (!hasChanged) {
             // No significant change, skip Shopify API call but still mark as synced
