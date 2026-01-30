@@ -70,24 +70,34 @@ class NhanhAPI {
         lastError = error;
         const status = error.response?.status;
         const errorMessage = typeof error.message === 'string' ? error.message : JSON.stringify(error.message);
+        const errorData = error.response?.data;
 
-        // Check for rate limit in error message (Nhanh implementation often returns 200 with error message)
-        // Also check for "System error" or "Internal Server Error" which might be transient
-        const isRateLimit =
+        // Check for specific partial success rate limit (code: 0, errorCode: "ERR_429")
+        // Doc: { code: 0, errorCode: "ERR_429", data: { lockedSeconds: 10, ... } }
+        const isAppRateLimit = errorData?.errorCode === "ERR_429";
+
+        // Fallback checks
+        const isGenericRateLimit =
           status === 429 ||
           errorMessage.toLowerCase().includes("rate limit") ||
-          errorMessage.toLowerCase().includes("quá tải") || // Vietnamese "overloaded"
+          errorMessage.toLowerCase().includes("quá tải") ||
           errorMessage.toLowerCase().includes("busy");
 
-        // Retry on 429 Rate Limit, 5xx errors, or recognized rate limit messages
-        if ((isRateLimit || (status && status >= 500)) && attempt < retries) {
-          // Exponential backoff with jitter: 2s, 4s, 8s... + random jitter
-          const baseDelay = Math.pow(2, attempt) * 1000;
-          const jitter = Math.random() * 1000;
-          const delay = baseDelay + jitter;
+        if ((isAppRateLimit || isGenericRateLimit || (status && status >= 500)) && attempt < retries) {
+          let delay = 0;
+
+          if (isAppRateLimit && errorData?.data?.lockedSeconds) {
+            // Wait exactly as requested + 1s buffer
+            delay = (errorData.data.lockedSeconds * 1000) + 1000;
+          } else {
+            // Exponential backoff
+            const baseDelay = Math.pow(2, attempt) * 1000;
+            const jitter = Math.random() * 1000;
+            delay = baseDelay + jitter;
+          }
 
           console.warn(
-            `⚠️ Nhanh API ${isRateLimit ? 'Rate Limit' : status} error, retrying in ${Math.round(delay)}ms... (attempt ${attempt}/${retries}) - ${errorMessage}`
+            `⚠️ Nhanh API ${isAppRateLimit ? 'ERR_429' : status} error, retrying in ${Math.round(delay)}ms... (attempt ${attempt}/${retries}) - ${errorMessage}`
           );
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
