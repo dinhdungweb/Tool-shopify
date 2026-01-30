@@ -14,7 +14,7 @@ export const maxDuration = 300; // 5 minutes for bulk operations
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { mappingIds } = body;
+    const { mappingIds, forceSync = true } = body; // Default forceSync to true for manual bulk sync
 
     if (!mappingIds || !Array.isArray(mappingIds) || mappingIds.length === 0) {
       return NextResponse.json(
@@ -74,9 +74,9 @@ export async function POST(request: NextRequest) {
           // SMART CHANGE DETECTION: Compare with current value - skip if no significant change OR never synced
           const currentTotalSpent = Number(mapping.nhanhTotalSpent);
           const newTotalSpent = Number(totalSpent);
-          const hasChanged = Math.abs(newTotalSpent - currentTotalSpent) >= 1000 || !mapping.lastSyncedAt; // Threshold 1000đ
+          const hasChanged = Math.abs(newTotalSpent - currentTotalSpent) >= 1000 || !mapping.lastSyncedAt;
 
-          if (!hasChanged) {
+          if (!hasChanged && !forceSync) {
             // No significant change, skip Shopify API call but still mark as synced
             await prisma.customerMapping.update({
               where: { id: mappingId },

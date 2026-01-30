@@ -14,7 +14,7 @@ export const maxDuration = 300;
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { mappingIds } = body;
+    const { mappingIds, forceSync = true } = body; // Default forceSync to true for manual bulk sync
 
     if (!mappingIds || !Array.isArray(mappingIds) || mappingIds.length === 0) {
       return NextResponse.json(
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Start background processing (don't await)
-    bulkSyncBackground(mappingIds, job.id);
+    bulkSyncBackground(mappingIds, job.id, forceSync);
 
     return NextResponse.json({
       success: true,
@@ -56,8 +56,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function bulkSyncBackground(mappingIds: string[], jobId: string) {
-  console.log(`🚀 Starting background bulk sync for ${mappingIds.length} customers (Job: ${jobId})...`);
+async function bulkSyncBackground(mappingIds: string[], jobId: string, forceSync: boolean) {
+  console.log(`🚀 Starting background bulk sync for ${mappingIds.length} customers (Job: ${jobId}, Force: ${forceSync})...`);
   const startTime = Date.now();
 
   let successful = 0;
@@ -99,7 +99,7 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string) {
         // SMART DETECTION: Skip if no significant change (threshold 1000đ) OR never synced
         const hasChanged = Math.abs(totalSpent - currentTotalSpent) >= 1000 || !mapping.lastSyncedAt;
 
-        if (!hasChanged) {
+        if (!hasChanged && !forceSync) {
           // Skip Shopify API call - NO DELAY NEEDED
           await prisma.customerMapping.update({
             where: { id: mappingId },
