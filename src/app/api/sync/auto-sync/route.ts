@@ -23,6 +23,23 @@ export async function POST(request: NextRequest) {
     const limit = limitParam ? parseInt(limitParam) : undefined;
     const forceSync = forceSyncParam === 'true';
 
+    // Check if auto-sync is enabled globally
+    // We skip this check if forceSync=true (manual override)
+    if (!forceSync) {
+      const config = await prisma.autoSyncConfig.findUnique({
+        where: { id: 'global' },
+      });
+
+      if (!config || !config.enabled) {
+        console.log('Auto sync is disabled in settings. Skipping job.');
+        return NextResponse.json({
+          success: false,
+          message: 'Auto sync is disabled globally. Enable it in Settings > Auto Sync.',
+          skipped: true,
+        });
+      }
+    }
+
     // Create background job for tracking
     const job = await prisma.backgroundJob.create({
       data: {
