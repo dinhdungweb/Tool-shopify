@@ -89,20 +89,26 @@ class ShopifyAPI {
         }
 
         // Don't retry on other errors
-        throw new Error(
+        const errorDetail =
           error.response?.data?.errors?.[0]?.message ||
+          JSON.stringify(error.response?.data) ||
           error.message ||
-          "Shopify API request failed"
-        );
+          "Shopify API request failed";
+
+        console.error(`Shopify API Error (${status}):`, errorDetail);
+
+        throw new Error(errorDetail);
       }
     }
 
     // All retries failed
-    throw new Error(
+    const finalError =
       lastError.response?.data?.errors?.[0]?.message ||
+      JSON.stringify(lastError.response?.data) ||
       lastError.message ||
-      "Shopify API request failed after retries"
-    );
+      "Shopify API request failed after retries";
+
+    throw new Error(finalError);
   }
 
   /**
@@ -279,8 +285,8 @@ class ShopifyAPI {
       }
 
       return true;
-    } catch (error) {
-      console.error("Error updating customer metafield:", error);
+    } catch (error: any) {
+      console.error("Error updating customer metafield:", error.message || JSON.stringify(error));
       throw error;
     }
   }
