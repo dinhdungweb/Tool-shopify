@@ -19,8 +19,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
+    console.log("🔍 Sync Customer Body:", JSON.stringify(body)); // Debug log
     mappingId = body.mappingId;
     const forceSync = body.forceSync === true;
+    console.log(`⚡ Sync params: mappingId=${mappingId}, forceSync=${forceSync} (raw=${body.forceSync})`); // Debug log
 
     if (!mappingId) {
       return NextResponse.json(

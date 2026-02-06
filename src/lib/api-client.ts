@@ -304,6 +304,7 @@ export const syncClient = {
   },
 
   async syncCustomer(mappingId: string, forceSync: boolean = true) {
+    console.log(`🚀 Client: syncCustomer called with mappingId=${mappingId}, forceSync=${forceSync}`);
     return apiCall<SyncResult>("/api/sync/sync-customer", {
       method: "POST",
       body: JSON.stringify({ mappingId, forceSync }),
