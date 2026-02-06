@@ -272,7 +272,7 @@ export default function CustomerSyncTable() {
 
     try {
       setSyncing(new Set(syncing).add(customerId));
-      await syncClient.syncCustomer(mapping.id);
+      await syncClient.syncCustomer(mapping.id, true);
       await loadData();
       alert("Customer synced successfully!");
     } catch (error: any) {

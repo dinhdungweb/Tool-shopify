@@ -53,9 +53,9 @@ async function apiCall<T>(
 
 // Nhanh.vn API calls
 export const nhanhClient = {
-  async getCustomers(params?: { 
-    page?: number; 
-    limit?: number; 
+  async getCustomers(params?: {
+    page?: number;
+    limit?: number;
     keyword?: string;
     next?: any;
     fetchAll?: boolean;
@@ -76,12 +76,12 @@ export const nhanhClient = {
         }
       });
     }
-    
+
     const query = new URLSearchParams(cleanParams).toString();
-    return apiCall<{ 
-      customers: NhanhCustomer[]; 
-      total: number; 
-      page: number; 
+    return apiCall<{
+      customers: NhanhCustomer[];
+      total: number;
+      page: number;
       limit: number;
       next?: any;
       hasMore: boolean;
@@ -91,8 +91,8 @@ export const nhanhClient = {
   },
 
   async getAllCustomers() {
-    return apiCall<{ 
-      customers: NhanhCustomer[]; 
+    return apiCall<{
+      customers: NhanhCustomer[];
       total: number;
     }>(
       `/api/nhanh/customers?fetchAll=true`
@@ -139,7 +139,7 @@ export const nhanhClient = {
         }
       });
     }
-    
+
     const query = new URLSearchParams(cleanParams).toString();
     return apiCall<{
       customers: NhanhCustomer[];
@@ -303,10 +303,10 @@ export const syncClient = {
     });
   },
 
-  async syncCustomer(mappingId: string) {
+  async syncCustomer(mappingId: string, forceSync: boolean = true) {
     return apiCall<SyncResult>("/api/sync/sync-customer", {
       method: "POST",
-      body: JSON.stringify({ mappingId }),
+      body: JSON.stringify({ mappingId, forceSync }),
     });
   },
 
