@@ -286,8 +286,19 @@ class ShopifyAPI {
 
       return true;
     } catch (error: any) {
-      console.error("Error updating customer metafield:", error.message || JSON.stringify(error));
-      throw error;
+      const errorDetails = {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+        graphqlErrors: error.response?.data?.errors,
+      };
+      console.error("❌ Error updating customer metafield:", JSON.stringify(errorDetails, null, 2));
+      throw new Error(
+        error.response?.data?.errors?.[0]?.message ||
+        error.message ||
+        JSON.stringify(error.response?.data) ||
+        "Unknown Shopify API error"
+      );
     }
   }
 
