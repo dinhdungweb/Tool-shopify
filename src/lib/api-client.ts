@@ -304,8 +304,9 @@ export const syncClient = {
   },
 
   async syncCustomer(mappingId: string, forceSync: boolean = true) {
-    console.log(`🚀 Client: syncCustomer called with mappingId=${mappingId}, forceSync=${forceSync}`);
-    return apiCall<SyncResult>("/api/sync/sync-customer", {
+    console.log(`🚀 [${new Date().toLocaleTimeString()}] Client: syncCustomer called with mappingId=${mappingId}, forceSync=${forceSync}`);
+    const timestamp = new Date().getTime();
+    return apiCall<SyncResult>(`/api/sync/sync-customer?t=${timestamp}`, {
       method: "POST",
       body: JSON.stringify({ mappingId, forceSync }),
     });
