@@ -96,6 +96,8 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string, forceSync
         const totalSpent = Number(mapping.nhanhCustomer.totalSpent);
         const currentTotalSpent = Number(mapping.nhanhTotalSpent);
 
+        console.log(`🔍 Bulk Sync [${mapping.nhanhCustomerName}]: DB(NhanhCustomer)=${totalSpent}, DB(Mapping)=${currentTotalSpent}`);
+
         // SMART DETECTION: Skip if no significant change (threshold 1000đ) OR never synced
         const hasChanged = Math.abs(totalSpent - currentTotalSpent) >= 1000 || !mapping.lastSyncedAt;
 

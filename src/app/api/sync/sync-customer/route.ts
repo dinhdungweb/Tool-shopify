@@ -97,17 +97,26 @@ export async function POST(request: NextRequest) {
       totalSpent
     );
 
-    // Update mapping
-    const updatedMapping = await prisma.customerMapping.update({
-      where: { id: mappingId },
-      data: {
-        nhanhTotalSpent: totalSpent,
-        syncStatus: SyncStatus.SYNCED,
-        lastSyncedAt: new Date(),
-        syncError: null,
-        syncAttempts: { increment: 1 },
-      },
-    });
+    // Update mapping AND NhanhCustomer (to keep DB fresh for bulk syncs)
+    const [updatedMapping] = await prisma.$transaction([
+      prisma.customerMapping.update({
+        where: { id: mappingId },
+        data: {
+          nhanhTotalSpent: totalSpent,
+          syncStatus: SyncStatus.SYNCED,
+          lastSyncedAt: new Date(),
+          syncError: null,
+          syncAttempts: { increment: 1 },
+        },
+      }),
+      prisma.nhanhCustomer.update({
+        where: { id: mapping.nhanhCustomerId },
+        data: {
+          totalSpent: totalSpent,
+          lastPulledAt: new Date(), // Mark as recently updated
+        },
+      }),
+    ]);
 
     // Create sync log
     await prisma.syncLog.create({
