@@ -43,10 +43,27 @@ export class RewardService {
                     },
                 });
 
+                // Create background job for tracking
+                const job = await prisma.backgroundJob.create({
+                    data: {
+                        type: 'RESET_REWARD_POINTS',
+                        total: mappings.length,
+                        status: 'RUNNING',
+                        metadata: {
+                            tier: schedule.tier,
+                            tierLabel: getTierLabel(schedule.tier),
+                            scheduleId: schedule.id,
+                            description: schedule.description || `Reset điểm hạng ${getTierLabel(schedule.tier)}`,
+                        },
+                    },
+                });
+
                 let successful = 0;
                 let failed = 0;
+                const startTime = Date.now();
 
-                for (const mapping of mappings) {
+                for (let i = 0; i < mappings.length; i++) {
+                    const mapping = mappings[i];
                     try {
                         if (!mapping.shopifyCustomerId) continue;
 
@@ -59,16 +76,60 @@ export class RewardService {
                         });
 
                         successful++;
+                        console.log(`  ✅ [${i + 1}/${mappings.length}] Reset điểm ${mapping.nhanhCustomerName}`);
                     } catch (error: any) {
                         failed++;
                         console.error(
-                            `  ❌ Failed to reset points for ${mapping.nhanhCustomerName}: ${error.message}`
+                            `  ❌ [${i + 1}/${mappings.length}] ${mapping.nhanhCustomerName}: ${error.message}`
                         );
+                    }
+
+                    // Update job progress every 20 customers
+                    if ((i + 1) % 20 === 0 || i === mappings.length - 1) {
+                        await prisma.backgroundJob.update({
+                            where: { id: job.id },
+                            data: {
+                                processed: i + 1,
+                                successful,
+                                failed,
+                                metadata: {
+                                    tier: schedule.tier,
+                                    tierLabel: getTierLabel(schedule.tier),
+                                    successful,
+                                    failed,
+                                    progress: `${i + 1}/${mappings.length}`,
+                                },
+                            },
+                        }).catch(() => { });
                     }
 
                     // Rate limiting
                     await new Promise((r) => setTimeout(r, 200));
                 }
+
+                const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
+                const duration = durationSeconds < 60
+                    ? `${durationSeconds}s`
+                    : `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;
+
+                // Update job as completed
+                await prisma.backgroundJob.update({
+                    where: { id: job.id },
+                    data: {
+                        status: failed === mappings.length ? 'FAILED' : 'COMPLETED',
+                        processed: mappings.length,
+                        successful,
+                        failed,
+                        completedAt: new Date(),
+                        metadata: {
+                            tier: schedule.tier,
+                            tierLabel: getTierLabel(schedule.tier),
+                            successful,
+                            failed,
+                            duration,
+                        },
+                    },
+                }).catch(() => { });
 
                 // Update schedule status
                 await prisma.pointExpirationSchedule.update({
@@ -81,7 +142,7 @@ export class RewardService {
                 });
 
                 console.log(
-                    `✅ Reset points for ${successful} customers in tier ${getTierLabel(schedule.tier)}`
+                    `✅ Reset points for ${successful} customers in tier ${getTierLabel(schedule.tier)} (${duration})`
                 );
 
                 results.push({
@@ -90,6 +151,8 @@ export class RewardService {
                     tierLabel: getTierLabel(schedule.tier),
                     successful,
                     failed,
+                    duration,
+                    jobId: job.id,
                 });
             }
 
