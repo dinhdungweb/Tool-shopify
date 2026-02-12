@@ -126,12 +126,12 @@ async function addPointsInBackground(
     points: number,
     jobId: string
 ) {
-    console.log(`🎁 Bắt đầu cộng ${points} điểm cho ${mappings.length} khách hàng (concurrent: 5)...`);
+    console.log(`🎁 Bắt đầu cộng ${points} điểm cho ${mappings.length} khách hàng (concurrent: 3)...`);
     const startTime = Date.now();
     let successful = 0;
     let failed = 0;
     let processed = 0;
-    const CONCURRENCY = 5;
+    const CONCURRENCY = 3;
 
     // Process in batches of CONCURRENCY
     for (let i = 0; i < mappings.length; i += CONCURRENCY) {
@@ -180,9 +180,9 @@ async function addPointsInBackground(
             },
         }).catch(() => { });
 
-        // Rate limiting giữa các batch (100ms)
+        // Rate limiting giữa các batch (200ms)
         if (i + CONCURRENCY < mappings.length) {
-            await new Promise((r) => setTimeout(r, 100));
+            await new Promise((r) => setTimeout(r, 200));
         }
     }
 
