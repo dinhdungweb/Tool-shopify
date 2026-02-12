@@ -2,6 +2,8 @@ import { prisma } from './prisma';
 import { shopifyAPI } from './shopify-api';
 import { getTierLabel } from './tier-constants';
 
+const CONCURRENCY = 5;
+
 export class RewardService {
     /**
      * Check and execute scheduled expirations
@@ -24,7 +26,7 @@ export class RewardService {
 
             console.log(`⏰ Found ${dueSchedules.length} expiration schedules to execute...`);
 
-            const results: any[] = [];
+            const allResults: any[] = [];
 
             for (const schedule of dueSchedules) {
                 console.log(`🔄 Processing expiration schedule: ${schedule.description || schedule.id}...`);
@@ -60,51 +62,61 @@ export class RewardService {
 
                 let successful = 0;
                 let failed = 0;
+                let processed = 0;
                 const startTime = Date.now();
 
-                for (let i = 0; i < mappings.length; i++) {
-                    const mapping = mappings[i];
-                    try {
-                        if (!mapping.shopifyCustomerId) continue;
+                // Process in batches of CONCURRENCY (5 parallel)
+                for (let i = 0; i < mappings.length; i += CONCURRENCY) {
+                    const batch = mappings.slice(i, i + CONCURRENCY);
 
-                        // Reset points to 0
-                        await shopifyAPI.updateCustomerMetafield(mapping.shopifyCustomerId, {
-                            namespace: 'rewards',
-                            key: 'points',
-                            value: '0',
-                            type: 'number_integer',
-                        });
+                    const results = await Promise.allSettled(
+                        batch.map(async (mapping) => {
+                            if (!mapping.shopifyCustomerId) return { skipped: true };
 
-                        successful++;
-                        console.log(`  ✅ [${i + 1}/${mappings.length}] Reset điểm ${mapping.nhanhCustomerName}`);
-                    } catch (error: any) {
-                        failed++;
-                        console.error(
-                            `  ❌ [${i + 1}/${mappings.length}] ${mapping.nhanhCustomerName}: ${error.message}`
-                        );
+                            await shopifyAPI.updateCustomerMetafield(mapping.shopifyCustomerId, {
+                                namespace: 'rewards',
+                                key: 'points',
+                                value: '0',
+                                type: 'number_integer',
+                            });
+
+                            return { name: mapping.nhanhCustomerName };
+                        })
+                    );
+
+                    for (const result of results) {
+                        processed++;
+                        if (result.status === 'fulfilled' && !(result.value as any)?.skipped) {
+                            successful++;
+                        } else if (result.status === 'rejected') {
+                            failed++;
+                            console.error(`  ❌ ${result.reason?.message || 'Unknown error'}`);
+                        }
                     }
 
-                    // Update job progress every 20 customers
-                    if ((i + 1) % 20 === 0 || i === mappings.length - 1) {
-                        await prisma.backgroundJob.update({
-                            where: { id: job.id },
-                            data: {
-                                processed: i + 1,
+                    console.log(`  ✅ [${processed}/${mappings.length}] Batch done - Success: ${successful}, Failed: ${failed}`);
+
+                    // Update job progress
+                    await prisma.backgroundJob.update({
+                        where: { id: job.id },
+                        data: {
+                            processed,
+                            successful,
+                            failed,
+                            metadata: {
+                                tier: schedule.tier,
+                                tierLabel: getTierLabel(schedule.tier),
                                 successful,
                                 failed,
-                                metadata: {
-                                    tier: schedule.tier,
-                                    tierLabel: getTierLabel(schedule.tier),
-                                    successful,
-                                    failed,
-                                    progress: `${i + 1}/${mappings.length}`,
-                                },
+                                progress: `${processed}/${mappings.length}`,
                             },
-                        }).catch(() => { });
-                    }
+                        },
+                    }).catch(() => { });
 
-                    // Rate limiting
-                    await new Promise((r) => setTimeout(r, 200));
+                    // Rate limiting between batches
+                    if (i + CONCURRENCY < mappings.length) {
+                        await new Promise((r) => setTimeout(r, 100));
+                    }
                 }
 
                 const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
@@ -145,7 +157,7 @@ export class RewardService {
                     `✅ Reset points for ${successful} customers in tier ${getTierLabel(schedule.tier)} (${duration})`
                 );
 
-                results.push({
+                allResults.push({
                     scheduleId: schedule.id,
                     tier: schedule.tier,
                     tierLabel: getTierLabel(schedule.tier),
@@ -160,7 +172,7 @@ export class RewardService {
                 success: true,
                 message: `Executed ${dueSchedules.length} expiration schedules.`,
                 processed: dueSchedules.length,
-                results,
+                results: allResults,
             };
         } catch (error: any) {
             console.error('Error processing expirations:', error);
