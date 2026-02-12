@@ -154,8 +154,8 @@ async function addPointsInBackground(
             console.error(`  ❌ [${i + 1}/${mappings.length}] ${mapping.nhanhCustomerName}: ${error.message}`);
         }
 
-        // Cập nhật tiến trình mỗi 10 khách
-        if ((i + 1) % 10 === 0 || i === mappings.length - 1) {
+        // Cập nhật tiến trình mỗi 20 khách
+        if ((i + 1) % 20 === 0 || i === mappings.length - 1) {
             await prisma.backgroundJob.update({
                 where: { id: jobId },
                 data: {
@@ -173,9 +173,9 @@ async function addPointsInBackground(
             }).catch(() => { });
         }
 
-        // Delay 500ms cho an toàn tuyệt đối
+        // Delay 200ms cho an toàn (Cân bằng tốc độ và Rate Limit)
         if (i < mappings.length - 1) {
-            await new Promise((r) => setTimeout(r, 500));
+            await new Promise((r) => setTimeout(r, 200));
         }
     }
 

@@ -86,8 +86,8 @@ export class RewardService {
                         );
                     }
 
-                    // Update job progress every 10 customers
-                    if ((i + 1) % 10 === 0 || i === mappings.length - 1) {
+                    // Update job progress every 20 customers
+                    if ((i + 1) % 20 === 0 || i === mappings.length - 1) {
                         await prisma.backgroundJob.update({
                             where: { id: job.id },
                             data: {
@@ -105,9 +105,9 @@ export class RewardService {
                         }).catch(() => { });
                     }
 
-                    // Delay 500ms
+                    // Delay 200ms (Cân bằng tốc độ và Rate Limit)
                     if (i < mappings.length - 1) {
-                        await new Promise((r) => setTimeout(r, 500));
+                        await new Promise((r) => setTimeout(r, 200));
                     }
                 }
 
