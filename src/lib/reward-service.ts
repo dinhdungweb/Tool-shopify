@@ -2,7 +2,7 @@ import { prisma } from './prisma';
 import { shopifyAPI } from './shopify-api';
 import { getTierLabel } from './tier-constants';
 
-const CONCURRENCY = 3;
+const CONCURRENCY = 2;
 
 export class RewardService {
     /**

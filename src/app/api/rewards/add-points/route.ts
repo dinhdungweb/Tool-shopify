@@ -126,12 +126,12 @@ async function addPointsInBackground(
     points: number,
     jobId: string
 ) {
-    console.log(`🎁 Bắt đầu cộng ${points} điểm cho ${mappings.length} khách hàng (concurrent: 3)...`);
+    console.log(`🎁 Bắt đầu cộng ${points} điểm cho ${mappings.length} khách hàng (concurrent: 2)...`);
     const startTime = Date.now();
     let successful = 0;
     let failed = 0;
     let processed = 0;
-    const CONCURRENCY = 3;
+    const CONCURRENCY = 2;
 
     // Process in batches of CONCURRENCY
     for (let i = 0; i < mappings.length; i += CONCURRENCY) {

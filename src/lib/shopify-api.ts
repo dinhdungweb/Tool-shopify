@@ -57,22 +57,29 @@ class ShopifyAPI {
         );
 
         if (response.data.errors) {
-          throw new Error(
-            response.data.errors.map((e) => e.message).join(", ")
-          );
+          const errorMessages = response.data.errors.map((e) => e.message).join(", ");
+          throw new Error(errorMessages);
         }
 
         return response.data.data;
       } catch (error: any) {
         lastError = error;
         const status = error.response?.status;
+        const errorMessage = error.message || "";
+        const isThrottled = status === 429 || errorMessage.includes("Throttled");
 
-        // Retry on 429 Rate Limit with exponential backoff
-        if (status === 429 && attempt < retries) {
-          const retryAfter = error.response?.headers?.['retry-after'];
-          const delay = retryAfter ? parseInt(retryAfter) * 1000 : Math.pow(2, attempt) * 1000; // Exponential: 2s, 4s, 8s
+        // Retry on 429 Rate Limit or "Throttled" error with exponential backoff
+        if (isThrottled && attempt < retries) {
+          const retryAfterHeader = error.response?.headers?.['retry-after'];
+          let delay = retryAfterHeader ? parseInt(retryAfterHeader) * 1000 : Math.pow(2, attempt) * 1000; // Exponential: 2s, 4s, 8s
+
+          // If explicitly "Throttled" message, wait at least 2 seconds
+          if (errorMessage.includes("Throttled")) {
+            delay = Math.max(delay, 2000);
+          }
+
           console.log(
-            `Shopify API rate limit (429), retrying in ${delay}ms... (attempt ${attempt}/${retries})`
+            `Shopify API rate limit (429/Throttled), retrying in ${delay}ms... (attempt ${attempt}/${retries})`
           );
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
@@ -95,20 +102,16 @@ class ShopifyAPI {
           error.message ||
           "Shopify API request failed";
 
-        console.error(`Shopify API Error (${status}):`, errorDetail);
+        console.error(`Shopify API Error (${status || 'GraphQL'}):`, errorDetail);
 
-        throw new Error(errorDetail);
+        if (attempt === retries) {
+          throw new Error(errorDetail);
+        }
       }
     }
 
-    // All retries failed
-    const finalError =
-      lastError.response?.data?.errors?.[0]?.message ||
-      JSON.stringify(lastError.response?.data) ||
-      lastError.message ||
-      "Shopify API request failed after retries";
-
-    throw new Error(finalError);
+    // All retries failed (should be covered by throw above, but just in case)
+    throw lastError;
   }
 
   /**
