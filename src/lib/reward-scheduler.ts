@@ -9,9 +9,9 @@ class RewardScheduler {
         console.log("Initializing reward expiration scheduler...");
         try {
             this.stop();
-            // Check every 5 minutes
+            // Check every minute (Precisely execute due schedules)
             this.task = cron.schedule(
-                "*/5 * * * *",
+                "* * * * *",
                 async () => {
                     await rewardService.checkExpirations();
                 },
