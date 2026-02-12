@@ -19,14 +19,20 @@ export async function GET(request: NextRequest) {
 
     // Get all jobs (for tracking page)
     if (all === "true") {
-      const jobs = await prisma.backgroundJob.findMany({
-        orderBy: { createdAt: "desc" },
-        take: limit,
-      });
+      const page = parseInt(searchParams.get("page") || "1");
+      const skip = (page - 1) * limit;
 
-      const runningCount = await prisma.backgroundJob.count({
-        where: { status: "RUNNING" },
-      });
+      const [jobs, totalCount, runningCount] = await Promise.all([
+        prisma.backgroundJob.findMany({
+          orderBy: { createdAt: "desc" },
+          skip,
+          take: limit,
+        }),
+        prisma.backgroundJob.count(),
+        prisma.backgroundJob.count({
+          where: { status: "RUNNING" },
+        }),
+      ]);
 
       const stats = await prisma.backgroundJob.groupBy({
         by: ["type"],
@@ -42,7 +48,10 @@ export async function GET(request: NextRequest) {
         success: true,
         data: {
           jobs,
+          totalCount,
           runningCount,
+          currentPage: page,
+          totalPages: Math.ceil(totalCount / limit),
           stats,
         },
       });

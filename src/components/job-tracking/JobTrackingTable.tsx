@@ -57,14 +57,23 @@ export default function JobTrackingTable() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [filter, setFilter] = useState<string>("all");
 
-  const fetchJobs = useCallback(async () => {
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 50;
+
+  const fetchJobs = useCallback(async (page = 1) => {
     try {
-      const response = await fetch("/api/sync/job-progress?all=true&limit=100");
+      const response = await fetch(`/api/sync/job-progress?all=true&limit=${pageSize}&page=${page}`);
       const result = await response.json();
 
       if (result.success) {
         setJobs(result.data.jobs);
         setRunningCount(result.data.runningCount);
+        setTotalPages(result.data.totalPages);
+        setTotalCount(result.data.totalCount);
+        setCurrentPage(result.data.currentPage);
       }
     } catch (error) {
       console.error("Error fetching jobs:", error);
@@ -81,9 +90,9 @@ export default function JobTrackingTable() {
   useEffect(() => {
     if (!autoRefresh || runningCount === 0) return;
 
-    const interval = setInterval(fetchJobs, 3000);
+    const interval = setInterval(() => fetchJobs(currentPage), 3000);
     return () => clearInterval(interval);
-  }, [autoRefresh, runningCount, fetchJobs]);
+  }, [autoRefresh, runningCount, fetchJobs, currentPage]);
 
   const filteredJobs = jobs.filter((job) => {
     if (filter === "all") return true;
@@ -130,8 +139,8 @@ export default function JobTrackingTable() {
                 Background Jobs
               </h3>
               {runningCount > 0 && (
-                <Badge 
-                  color="primary" 
+                <Badge
+                  color="primary"
                   size="sm"
                   startIcon={<span className="h-2 w-2 animate-pulse rounded-full bg-brand-500"></span>}
                 >
@@ -154,7 +163,7 @@ export default function JobTrackingTable() {
 
             {/* Refresh Button */}
             <button
-              onClick={fetchJobs}
+              onClick={() => fetchJobs(currentPage)}
               disabled={loading}
               className="inline-flex h-[40px] items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
             >
@@ -250,7 +259,7 @@ export default function JobTrackingTable() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge 
+                    <Badge
                       color={STATUS_BADGE_CONFIG[job.status]?.color || "light"}
                       size="sm"
                       startIcon={
@@ -270,15 +279,14 @@ export default function JobTrackingTable() {
                       </div>
                       <div className="h-1.5 w-full rounded-full bg-gray-200 dark:bg-gray-700">
                         <div
-                          className={`h-1.5 rounded-full transition-all ${
-                            job.status === "RUNNING"
-                              ? "bg-brand-500"
-                              : job.status === "COMPLETED"
+                          className={`h-1.5 rounded-full transition-all ${job.status === "RUNNING"
+                            ? "bg-brand-500"
+                            : job.status === "COMPLETED"
                               ? "bg-success-500"
                               : job.status === "FAILED"
-                              ? "bg-error-500"
-                              : "bg-gray-400"
-                          }`}
+                                ? "bg-error-500"
+                                : "bg-gray-400"
+                            }`}
                           style={{ width: `${getProgress(job)}%` }}
                         />
                       </div>
@@ -318,12 +326,12 @@ export default function JobTrackingTable() {
         </Table>
       </div>
 
-      {/* Summary Footer */}
-      {jobs.length > 0 && (
-        <div className="border-t border-gray-200 px-6 py-4 dark:border-gray-800">
+      {/* Summary Footer & Pagination */}
+      <div className="border-t border-gray-200 px-6 py-4 dark:border-gray-800">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-400">
             <span>
-              Total: <strong>{jobs.length}</strong> jobs
+              Total: <strong>{totalCount}</strong> jobs
             </span>
             <span className="flex items-center gap-2">
               Running: <Badge color="primary" size="sm">{runningCount}</Badge>
@@ -331,12 +339,62 @@ export default function JobTrackingTable() {
             <span className="flex items-center gap-2">
               Completed: <Badge color="success" size="sm">{jobs.filter((j) => j.status === "COMPLETED").length}</Badge>
             </span>
-            <span className="flex items-center gap-2">
-              Failed: <Badge color="error" size="sm">{jobs.filter((j) => j.status === "FAILED").length}</Badge>
-            </span>
           </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => fetchJobs(currentPage - 1)}
+                disabled={currentPage === 1 || loading}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+
+              <div className="flex items-center gap-1">
+                {[...Array(Math.min(5, totalPages))].map((_, i) => {
+                  let pageNum: number;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => fetchJobs(pageNum)}
+                      className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-sm font-medium transition-colors ${currentPage === pageNum
+                          ? "bg-brand-500 text-white"
+                          : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+                        }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => fetchJobs(currentPage + 1)}
+                disabled={currentPage === totalPages || loading}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
