@@ -66,40 +66,20 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/rewards/tier-stats
- * Tính lại hạng cho tất cả khách hàng (migration)
+ * Tính lại hạng cho khách hàng đã mapping
  */
 export async function POST(request: NextRequest) {
     try {
-        console.log("🔄 Đang tính lại hạng cho tất cả khách hàng...");
+        console.log("🔄 Đang tính lại hạng cho khách hàng đã mapping...");
 
-        // Lấy tất cả NhanhCustomer
-        const customers = await prisma.nhanhCustomer.findMany({
-            select: { id: true, totalSpent: true },
-        });
-
-        let updated = 0;
         const batchSize = 500;
 
-        for (let i = 0; i < customers.length; i += batchSize) {
-            const batch = customers.slice(i, i + batchSize);
-
-            await prisma.$transaction(
-                batch.map((c) =>
-                    prisma.nhanhCustomer.update({
-                        where: { id: c.id },
-                        data: { tier: calculateTier(Number(c.totalSpent)) },
-                    })
-                )
-            );
-
-            updated += batch.length;
-            console.log(`  ✅ Đã cập nhật ${updated}/${customers.length} khách hàng`);
-        }
-
-        // Cập nhật tier cho CustomerMapping
+        // Chỉ cập nhật tier cho CustomerMapping (khách đã mapping)
         const mappings = await prisma.customerMapping.findMany({
             select: { id: true, nhanhTotalSpent: true },
         });
+
+        let updated = 0;
 
         for (let i = 0; i < mappings.length; i += batchSize) {
             const batch = mappings.slice(i, i + batchSize);
@@ -112,16 +92,18 @@ export async function POST(request: NextRequest) {
                     })
                 )
             );
+
+            updated += batch.length;
+            console.log(`  ✅ Đã cập nhật ${updated}/${mappings.length} khách hàng`);
         }
 
-        console.log(`🎉 Hoàn thành! Đã tính lại hạng cho ${customers.length} khách hàng và ${mappings.length} mapping.`);
+        console.log(`🎉 Hoàn thành! Đã tính lại hạng cho ${mappings.length} khách hàng đã mapping.`);
 
         return NextResponse.json({
             success: true,
             data: {
-                customersUpdated: customers.length,
                 mappingsUpdated: mappings.length,
-                message: `Đã tính lại hạng cho ${customers.length} khách hàng.`,
+                message: `Đã tính lại hạng cho ${mappings.length} khách hàng đã mapping.`,
             },
         });
     } catch (error: any) {
