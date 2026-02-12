@@ -17,6 +17,7 @@ import {
   ClockIcon,
   SettingsIcon,
   InfoCircleIcon,
+  ShootingStarIcon,
 } from "../icons/index";
 
 type NavItem = {
@@ -28,55 +29,60 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   {
-    icon: <GridIcon />,
+    icon: <GridIcon className="w-6 h-6" />,
     name: "Dashboard",
     path: "/",
   },
   {
-    icon: <SyncIcon />,
+    icon: <SyncIcon className="w-6 h-6" />,
     name: "Customer Sync",
     path: "/customers-sync",
   },
   {
-    icon: <ShoppingCartIcon />,
+    icon: <ShoppingCartIcon className="w-6 h-6" />,
     name: "Products Sync",
     path: "/products-sync",
   },
   {
-    icon: <TagIcon />,
+    icon: <TagIcon className="w-6 h-6" />,
     name: "Sale Campaigns",
     path: "/sale-campaigns",
   },
   {
-    icon: <ClockIcon />,
+    icon: <ClockIcon className="w-6 h-6" />,
     name: "Job Tracking",
     path: "/job-tracking",
   },
   {
-    icon: <PlugInIcon />,
+    icon: <PlugInIcon className="w-6 h-6" />,
     name: "Sync Rules",
     path: "/sync-rules",
   },
   {
-    icon: <PageIcon />,
+    icon: <PageIcon className="w-6 h-6" />,
     name: "Pending Approvals",
     path: "/pending-approvals",
+  },
+  {
+    icon: <ShootingStarIcon className="w-6 h-6" />,
+    name: "Loyalty & Rewards",
+    path: "/loyalty",
   },
 ];
 
 const othersItems: NavItem[] = [
   {
-    icon: <SettingsIcon />,
+    icon: <SettingsIcon className="w-6 h-6" />,
     name: "Settings",
     path: "/settings",
   },
   {
-    icon: <InfoCircleIcon />,
+    icon: <InfoCircleIcon className="w-6 h-6" />,
     name: "System Logs",
     path: "/logs",
   },
   {
-    icon: <UserCircleIcon />,
+    icon: <UserCircleIcon className="w-6 h-6" />,
     name: "User Profile",
     path: "/profile",
   },
@@ -97,8 +103,8 @@ const AppSidebar: React.FC = () => {
             <button
               onClick={() => handleSubmenuToggle(index, menuType)}
               className={`menu-item group  ${openSubmenu?.type === menuType && openSubmenu?.index === index
-                  ? "menu-item-active"
-                  : "menu-item-inactive"
+                ? "menu-item-active"
+                : "menu-item-inactive"
                 } cursor-pointer ${!isExpanded && !isHovered
                   ? "lg:justify-center"
                   : "lg:justify-start"
@@ -106,8 +112,8 @@ const AppSidebar: React.FC = () => {
             >
               <span
                 className={` ${openSubmenu?.type === menuType && openSubmenu?.index === index
-                    ? "menu-item-icon-active"
-                    : "menu-item-icon-inactive"
+                  ? "menu-item-icon-active"
+                  : "menu-item-icon-inactive"
                   }`}
               >
                 {nav.icon}
@@ -118,9 +124,9 @@ const AppSidebar: React.FC = () => {
               {(isExpanded || isHovered || isMobileOpen) && (
                 <ChevronDownIcon
                   className={`ml-auto w-5 h-5 transition-transform duration-200  ${openSubmenu?.type === menuType &&
-                      openSubmenu?.index === index
-                      ? "rotate-180 text-brand-500"
-                      : ""
+                    openSubmenu?.index === index
+                    ? "rotate-180 text-brand-500"
+                    : ""
                     }`}
                 />
               )}
@@ -134,8 +140,8 @@ const AppSidebar: React.FC = () => {
               >
                 <span
                   className={`${isActive(nav.path)
-                      ? "menu-item-icon-active"
-                      : "menu-item-icon-inactive"
+                    ? "menu-item-icon-active"
+                    : "menu-item-icon-inactive"
                     }`}
                 >
                   {nav.icon}
@@ -165,8 +171,8 @@ const AppSidebar: React.FC = () => {
                     <Link
                       href={subItem.path}
                       className={`menu-dropdown-item ${isActive(subItem.path)
-                          ? "menu-dropdown-item-active"
-                          : "menu-dropdown-item-inactive"
+                        ? "menu-dropdown-item-active"
+                        : "menu-dropdown-item-inactive"
                         }`}
                     >
                       {subItem.name}
@@ -174,8 +180,8 @@ const AppSidebar: React.FC = () => {
                         {subItem.new && (
                           <span
                             className={`ml-auto ${isActive(subItem.path)
-                                ? "menu-dropdown-badge-active"
-                                : "menu-dropdown-badge-inactive"
+                              ? "menu-dropdown-badge-active"
+                              : "menu-dropdown-badge-inactive"
                               } menu-dropdown-badge `}
                           >
                             new
@@ -184,8 +190,8 @@ const AppSidebar: React.FC = () => {
                         {subItem.pro && (
                           <span
                             className={`ml-auto ${isActive(subItem.path)
-                                ? "menu-dropdown-badge-active"
-                                : "menu-dropdown-badge-inactive"
+                              ? "menu-dropdown-badge-active"
+                              : "menu-dropdown-badge-inactive"
                               } menu-dropdown-badge `}
                           >
                             pro
@@ -319,8 +325,8 @@ const AppSidebar: React.FC = () => {
             <div>
               <h2
                 className={`mb-4 text-xs uppercase flex leading-[20px] text-gray-400 ${!isExpanded && !isHovered
-                    ? "lg:justify-center"
-                    : "justify-start"
+                  ? "lg:justify-center"
+                  : "justify-start"
                   }`}
               >
                 {isExpanded || isHovered || isMobileOpen ? (
@@ -335,8 +341,8 @@ const AppSidebar: React.FC = () => {
             <div className="">
               <h2
                 className={`mb-4 text-xs uppercase flex leading-[20px] text-gray-400 ${!isExpanded && !isHovered
-                    ? "lg:justify-center"
-                    : "justify-start"
+                  ? "lg:justify-center"
+                  : "justify-start"
                   }`}
               >
                 {isExpanded || isHovered || isMobileOpen ? (

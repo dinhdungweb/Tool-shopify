@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { nhanhAPI } from "@/lib/nhanh-api";
 import { prisma } from "@/lib/prisma";
 import { formatDuration } from "@/lib/format-duration";
+import { calculateTier } from "@/lib/tier-constants";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -237,6 +238,7 @@ async function pullAllCustomersInBackground(filters?: {
               phone: customer.phone || null,
               email: customer.email || null,
               totalSpent: customer.totalSpent,
+              tier: calculateTier(Number(customer.totalSpent)),
               address: customer.address || null,
               city: customer.city || null,
               district: customer.district || null,
@@ -264,6 +266,7 @@ async function pullAllCustomersInBackground(filters?: {
                       phone: customer.phone || null,
                       email: customer.email || null,
                       totalSpent: customer.totalSpent,
+                      tier: calculateTier(Number(customer.totalSpent)),
                       address: customer.address || null,
                       city: customer.city || null,
                       district: customer.district || null,
@@ -331,6 +334,7 @@ async function pullAllCustomersInBackground(filters?: {
               phone: customer.phone || null,
               email: customer.email || null,
               totalSpent: customer.totalSpent,
+              tier: calculateTier(Number(customer.totalSpent)),
               address: customer.address || null,
               city: customer.city || null,
               district: customer.district || null,
@@ -358,6 +362,7 @@ async function pullAllCustomersInBackground(filters?: {
                       phone: customer.phone || null,
                       email: customer.email || null,
                       totalSpent: customer.totalSpent,
+                      tier: calculateTier(Number(customer.totalSpent)),
                       address: customer.address || null,
                       city: customer.city || null,
                       district: customer.district || null,

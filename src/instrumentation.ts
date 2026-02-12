@@ -5,7 +5,7 @@ export async function register() {
   // Only run on server side
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     console.log('🚀 Server starting - initializing schedulers...');
-    
+
     // Initialize customer sync scheduler
     try {
       const { cronScheduler } = await import('./lib/cron-scheduler');
@@ -33,10 +33,19 @@ export async function register() {
       console.error('❌ Failed to initialize sale campaign scheduler:', error);
     }
 
+    // Initialize reward expiration scheduler
+    try {
+      const { rewardScheduler } = await import('./lib/reward-scheduler');
+      await rewardScheduler.initialize();
+      console.log('✅ Reward expiration scheduler initialized');
+    } catch (error) {
+      console.error('❌ Failed to initialize reward expiration scheduler:', error);
+    }
+
     // Recover stuck campaigns
     try {
       const { prisma } = await import('./lib/prisma');
-      
+
       const stuckCampaigns = await prisma.saleCampaign.findMany({
         where: {
           OR: [
@@ -48,7 +57,7 @@ export async function register() {
 
       if (stuckCampaigns.length > 0) {
         console.log(`⚠️  Found ${stuckCampaigns.length} stuck campaigns, recovering...`);
-        
+
         for (const campaign of stuckCampaigns) {
           const appliedChanges = await prisma.priceChange.count({
             where: {
@@ -59,7 +68,7 @@ export async function register() {
           });
 
           let newStatus: string;
-          
+
           if (campaign.status === "APPLYING") {
             newStatus = appliedChanges > 0 ? "ACTIVE" : "FAILED";
           } else {
@@ -74,7 +83,7 @@ export async function register() {
 
           await prisma.saleCampaign.update({
             where: { id: campaign.id },
-            data: { 
+            data: {
               status: newStatus as any,
               errorMessage: `Recovered from ${campaign.status} state after server restart`,
             },

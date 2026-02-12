@@ -15,6 +15,7 @@ model NhanhCustomer {
   phone        String?
   email        String?
   totalSpent   Decimal          @default(0) @db.Decimal(18, 2)
+  tier         String           @default("MEMBER")
   address      String?
   city         String?
   district     String?
@@ -26,6 +27,7 @@ model NhanhCustomer {
   @@index([phone])
   @@index([email])
   @@index([totalSpent])
+  @@index([tier])
   @@index([lastPulledAt])
   @@map("nhanh_customers")
 }
@@ -39,6 +41,7 @@ model CustomerMapping {
   nhanhCustomerPhone   String?
   nhanhCustomerEmail   String?
   nhanhTotalSpent      Decimal       @default(0) @db.Decimal(18, 2)
+  tier                 String        @default("MEMBER")
   shopifyCustomerId    String?
   shopifyCustomerEmail String?
   shopifyCustomerName  String?
@@ -52,6 +55,7 @@ model CustomerMapping {
   @@index([nhanhCustomerId])
   @@index([shopifyCustomerId])
   @@index([syncStatus])
+  @@index([tier])
   @@map("customer_mappings")
 }
 
@@ -501,4 +505,22 @@ model SyncRuleLog {
   @@index([createdAt])
   @@index([mappingType])
   @@map("sync_rule_logs")
+}
+
+model PointExpirationSchedule {
+  id            String    @id @default(cuid())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  tier          String
+  pointsAdded   Int       @default(0)
+  expiresAt     DateTime
+  status        String    @default("PENDING") // PENDING, EXECUTED, CANCELLED
+  executedAt    DateTime?
+  affectedCount Int       @default(0)
+  description   String?
+
+  @@index([tier])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("point_expiration_schedules")
 }
