@@ -9,11 +9,10 @@ class RewardScheduler {
         console.log("Initializing reward expiration scheduler...");
         try {
             this.stop();
-            // Check every hour at minute 0
+            // Check every minute (like sale campaign scheduler)
             this.task = cron.schedule(
-                "0 * * * *",
+                "* * * * *",
                 async () => {
-                    console.log("Running scheduled reward expiration check...");
                     await rewardService.checkExpirations();
                 },
                 {
@@ -22,10 +21,10 @@ class RewardScheduler {
                 }
             );
             this.isInitialized = true;
-            console.log("✅ Reward expiration scheduler initialized (Every hour)");
+            console.log("✅ Reward expiration scheduler initialized (Every minute)");
 
-            // Optional: Run check immediately on startup
-            // await rewardService.checkExpirations();
+            // Run check immediately on startup
+            await rewardService.checkExpirations();
         } catch (error) {
             console.error("❌ Failed to initialize reward scheduler:", error);
         }
