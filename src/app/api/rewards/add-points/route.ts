@@ -119,70 +119,63 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Xử lý cộng điểm nền - chạy song song 5 requests
+ * Xử lý cộng điểm nền - Chế độ An toàn nhất (Tuần tự)
  */
 async function addPointsInBackground(
     mappings: { id: string; shopifyCustomerId: string | null; nhanhCustomerName: string; tier: string }[],
     points: number,
     jobId: string
 ) {
-    console.log(`🎁 Bắt đầu cộng ${points} điểm cho ${mappings.length} khách hàng (concurrent: 2)...`);
+    console.log(`🎁 Bắt đầu cộng ${points} điểm cho ${mappings.length} khách hàng (Chế độ An toàn nhất)...`);
     const startTime = Date.now();
     let successful = 0;
     let failed = 0;
-    let processed = 0;
-    const CONCURRENCY = 2;
 
-    // Process in batches of CONCURRENCY
-    for (let i = 0; i < mappings.length; i += CONCURRENCY) {
-        const batch = mappings.slice(i, i + CONCURRENCY);
-
-        const results = await Promise.allSettled(
-            batch.map(async (mapping) => {
-                if (!mapping.shopifyCustomerId) return { skipped: true };
-
-                await shopifyAPI.updateCustomerMetafield(mapping.shopifyCustomerId, {
-                    namespace: "rewards",
-                    key: "points",
-                    value: points.toString(),
-                    type: "number_integer",
-                });
-
-                return { name: mapping.nhanhCustomerName };
-            })
-        );
-
-        for (const result of results) {
-            processed++;
-            if (result.status === "fulfilled" && !(result.value as any)?.skipped) {
-                successful++;
-            } else if (result.status === "rejected") {
-                failed++;
-                console.error(`  ❌ ${result.reason?.message || "Unknown error"}`);
+    for (let i = 0; i < mappings.length; i++) {
+        const mapping = mappings[i];
+        try {
+            if (!mapping.shopifyCustomerId) {
+                console.log(`  ⏩ [${i + 1}/${mappings.length}] Bỏ qua ${mapping.nhanhCustomerName} (Không có Shopify ID)`);
+                continue;
             }
+
+            // Cộng điểm vào Shopify metafield rewards.points
+            await shopifyAPI.updateCustomerMetafield(mapping.shopifyCustomerId, {
+                namespace: "rewards",
+                key: "points",
+                value: points.toString(),
+                type: "number_integer",
+            });
+
+            successful++;
+            console.log(`  ✅ [${i + 1}/${mappings.length}] ${mapping.nhanhCustomerName}: +${points} điểm`);
+        } catch (error: any) {
+            failed++;
+            console.error(`  ❌ [${i + 1}/${mappings.length}] ${mapping.nhanhCustomerName}: ${error.message}`);
         }
 
-        console.log(`  ✅ [${processed}/${mappings.length}] Batch done - Success: ${successful}, Failed: ${failed}`);
-
-        // Cập nhật tiến trình sau mỗi batch
-        await prisma.backgroundJob.update({
-            where: { id: jobId },
-            data: {
-                processed,
-                successful,
-                failed,
-                metadata: {
-                    points,
+        // Cập nhật tiến trình mỗi 10 khách
+        if ((i + 1) % 10 === 0 || i === mappings.length - 1) {
+            await prisma.backgroundJob.update({
+                where: { id: jobId },
+                data: {
+                    processed: i + 1,
                     successful,
                     failed,
-                    progress: `${processed}/${mappings.length}`,
+                    status: "RUNNING",
+                    metadata: {
+                        points,
+                        successful,
+                        failed,
+                        progress: `${i + 1}/${mappings.length}`,
+                    },
                 },
-            },
-        }).catch(() => { });
+            }).catch(() => { });
+        }
 
-        // Rate limiting giữa các batch (200ms)
-        if (i + CONCURRENCY < mappings.length) {
-            await new Promise((r) => setTimeout(r, 200));
+        // Delay 500ms cho an toàn tuyệt đối
+        if (i < mappings.length - 1) {
+            await new Promise((r) => setTimeout(r, 500));
         }
     }
 
@@ -195,7 +188,7 @@ async function addPointsInBackground(
     await prisma.backgroundJob.update({
         where: { id: jobId },
         data: {
-            status: failed === mappings.length ? "FAILED" : "COMPLETED",
+            status: failed >= mappings.length && mappings.length > 0 ? "FAILED" : "COMPLETED",
             processed: mappings.length,
             successful,
             failed,
