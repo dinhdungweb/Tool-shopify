@@ -28,6 +28,12 @@ export class RewardService {
             const allResults: any[] = [];
 
             for (const schedule of dueSchedules) {
+                // Mark as EXECUTING immediately to prevent other cron ticks from picking it up
+                await prisma.pointExpirationSchedule.update({
+                    where: { id: schedule.id },
+                    data: { status: 'EXECUTING' }
+                });
+
                 console.log(`🔄 Processing expiration schedule: ${schedule.description || schedule.id}...`);
 
                 // Find customers in this tier
