@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { shopifyAPI } from "@/lib/shopify-api";
+import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 
 export const dynamic = "force-dynamic";
 
@@ -22,11 +23,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const success = await shopifyAPI.updateCustomerMetafield(customerId, {
-      namespace,
-      key,
-      value: value.toString(),
-      type,
+    const success = await shopifyQueue.enqueue({
+      type: "graphql",
+      priority: QueuePriority.MANUAL,
+      entityId: `customer_${customerId}`,
+      action: "update_metafield",
+      source: "update_metafield_manual",
+      execute: () => shopifyAPI.updateCustomerMetafield(customerId, {
+        namespace,
+        key,
+        value: value.toString(),
+        type,
+      }),
     });
 
     return NextResponse.json({

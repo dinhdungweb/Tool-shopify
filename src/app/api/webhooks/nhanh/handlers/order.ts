@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { nhanhAPI } from "@/lib/nhanh-api";
 import { shopifyAPI } from "@/lib/shopify-api";
+import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 
 /**
  * Handle order webhook from Nhanh.vn (orderAdd, orderUpdate)
@@ -108,14 +109,21 @@ export async function handleOrderWebhook(payload: any) {
             console.log(`Note: Could not update NhanhCustomer table (customer may not exist there)`);
         }
 
-        // Sync to Shopify
+        // Sync to Shopify — qua queue
         console.log(`🔄 Syncing to Shopify customer ${mapping.shopifyCustomerId}...`);
 
         const shopifyGid = mapping.shopifyCustomerId.startsWith("gid://")
             ? mapping.shopifyCustomerId
             : `gid://shopify/Customer/${mapping.shopifyCustomerId}`;
 
-        await shopifyAPI.syncCustomerTotalSpent(shopifyGid, totalSpent);
+        await shopifyQueue.enqueue({
+            type: "graphql",
+            priority: QueuePriority.WEBHOOK,
+            entityId: `customer_${customerId}`,
+            action: "sync_customer_total_spent",
+            source: "webhook_order",
+            execute: () => shopifyAPI.syncCustomerTotalSpent(shopifyGid, totalSpent),
+        });
 
         // Update mapping
         await prisma.customerMapping.update({

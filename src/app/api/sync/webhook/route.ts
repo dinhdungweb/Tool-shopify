@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { shopifyAPI } from "@/lib/shopify-api";
 import { nhanhAPI } from "@/lib/nhanh-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
+import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 
 export const dynamic = "force-dynamic";
 
@@ -132,11 +133,18 @@ export async function POST(request: NextRequest) {
           mapping.nhanhCustomerId
         );
 
-        // Update Shopify metafield
-        await shopifyAPI.syncCustomerTotalSpent(
-          mapping.shopifyCustomerId,
-          totalSpent
-        );
+        // Update Shopify metafield — qua queue
+        await shopifyQueue.enqueue({
+          type: "graphql",
+          priority: QueuePriority.WEBHOOK,
+          entityId: `customer_${mapping.nhanhCustomerId}`,
+          action: "sync_customer_total_spent",
+          source: "legacy_webhook",
+          execute: () => shopifyAPI.syncCustomerTotalSpent(
+            mapping.shopifyCustomerId!,
+            totalSpent
+          ),
+        });
 
         // Update mapping
         await prisma.customerMapping.update({

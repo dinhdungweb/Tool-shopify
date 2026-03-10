@@ -6,6 +6,7 @@ import { shopifyProductAPI } from "@/lib/shopify-product-api";
 import { nhanhProductAPI } from "@/lib/nhanh-product-api";
 import { SyncStatus } from "@prisma/client";
 import { evaluateRules } from "@/lib/sync-rules-engine";
+import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes
@@ -266,12 +267,19 @@ async function bulkSyncOptimized(
               }
 
               try {
-                const result = await shopifyProductAPI.updateVariantInventory(
-                  mapping.shopifyVariantId!,
-                  totalQuantity,
-                  mapping.shopifyInventoryItemId || undefined,
-                  shopifyLocationId
-                );
+                const result = await shopifyQueue.enqueue({
+                  type: "rest",
+                  priority: QueuePriority.BULK,
+                  entityId: `product_${mapping.nhanhProductId}_loc_${shopifyLocationId}`,
+                  action: "update_inventory",
+                  source: "bulk_sync_products",
+                  execute: () => shopifyProductAPI.updateVariantInventory(
+                    mapping.shopifyVariantId!,
+                    totalQuantity,
+                    mapping.shopifyInventoryItemId || undefined,
+                    shopifyLocationId
+                  ),
+                });
 
                 // Update mapping (don't await, fire and forget for speed)
                 prisma.productMapping.update({
@@ -361,11 +369,18 @@ async function bulkSyncOptimized(
             }
 
             try {
-              const result = await shopifyProductAPI.updateVariantInventory(
-                mapping.shopifyVariantId!,
-                quantity,
-                mapping.shopifyInventoryItemId || undefined
-              );
+              const result = await shopifyQueue.enqueue({
+                type: "rest",
+                priority: QueuePriority.BULK,
+                entityId: `product_${mapping.nhanhProductId}`,
+                action: "update_inventory",
+                source: "bulk_sync_products",
+                execute: () => shopifyProductAPI.updateVariantInventory(
+                  mapping.shopifyVariantId!,
+                  quantity,
+                  mapping.shopifyInventoryItemId || undefined
+                ),
+              });
 
               prisma.productMapping.update({
                 where: { id: mapping.id },

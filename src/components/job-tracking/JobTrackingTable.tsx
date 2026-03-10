@@ -38,6 +38,8 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   PULL_NHANH_CUSTOMERS: "Pull Nhanh Customers",
   AUTO_MATCH_PRODUCTS: "Auto Match Products",
   AUTO_MATCH_CUSTOMERS: "Auto Match Customers",
+  ADD_REWARD_POINTS: "Add Reward Points",
+  RESET_REWARD_POINTS: "Reset Reward Points",
 };
 
 const STATUS_BADGE_CONFIG: Record<string, { color: "light" | "primary" | "success" | "error" | "warning"; icon?: string }> = {
@@ -199,6 +201,8 @@ export default function JobTrackingTable() {
                   { value: "PULL_NHANH_CUSTOMERS", label: "Pull Nhanh Customers" },
                   { value: "AUTO_MATCH_PRODUCTS", label: "Auto Match Products" },
                   { value: "AUTO_MATCH_CUSTOMERS", label: "Auto Match Customers" },
+                  { value: "ADD_REWARD_POINTS", label: "Add Reward Points" },
+                  { value: "RESET_REWARD_POINTS", label: "Reset Reward Points" },
                 ]}
                 defaultValue={filter}
                 onChange={setFilter}
@@ -372,8 +376,8 @@ export default function JobTrackingTable() {
                       key={pageNum}
                       onClick={() => fetchJobs(pageNum)}
                       className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-sm font-medium transition-colors ${currentPage === pageNum
-                          ? "bg-brand-500 text-white"
-                          : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+                        ? "bg-brand-500 text-white"
+                        : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
                         }`}
                     >
                       {pageNum}

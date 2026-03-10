@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { shopifyProductAPI } from "@/lib/shopify-product-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
+import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 
 /**
  * Handle inventory change webhook
@@ -69,17 +70,24 @@ export async function handleInventoryWebhook(payload: any) {
         let totalQuantity = 0;
 
         if (locationMappings.length > 0 && product.depots) {
-          // Multi-location sync
+          // Multi-location sync — qua queue
           for (const locMap of locationMappings) {
             const depot = product.depots.find((d: any) => d.id.toString() === locMap.nhanhDepotId);
             const depotQty = depot ? parseFloat(depot.available || "0") : 0;
 
-            await shopifyProductAPI.updateVariantInventory(
-              mapping.shopifyProductId,
-              Math.floor(depotQty),
-              undefined,
-              locMap.shopifyLocationId
-            );
+            await shopifyQueue.enqueue({
+              type: "rest",
+              priority: QueuePriority.WEBHOOK,
+              entityId: `product_${nhanhProductId}_loc_${locMap.shopifyLocationId}`,
+              action: "update_inventory",
+              source: "webhook_inventory",
+              execute: () => shopifyProductAPI.updateVariantInventory(
+                mapping.shopifyProductId!,
+                Math.floor(depotQty),
+                undefined,
+                locMap.shopifyLocationId
+              ),
+            });
             console.log(`     -> Depot '${locMap.nhanhDepotName}' (${depotQty}) → '${locMap.shopifyLocationName}'`);
           }
           totalQuantity = parseFloat(product.available || "0");
@@ -93,10 +101,17 @@ export async function handleInventoryWebhook(payload: any) {
           }
 
           console.log(`  🔄 Syncing ${mapping.shopifyProductId} (Default Location)...`);
-          await shopifyProductAPI.updateVariantInventory(
-            mapping.shopifyProductId,
-            Math.floor(totalQuantity)
-          );
+          await shopifyQueue.enqueue({
+            type: "rest",
+            priority: QueuePriority.WEBHOOK,
+            entityId: `product_${nhanhProductId}`,
+            action: "update_inventory",
+            source: "webhook_inventory",
+            execute: () => shopifyProductAPI.updateVariantInventory(
+              mapping.shopifyProductId!,
+              Math.floor(totalQuantity)
+            ),
+          });
         }
 
         console.log(`  📊 Product ${nhanhProductId} (${product.code}): ${totalQuantity} available`);

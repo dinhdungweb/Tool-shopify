@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { shopifyAPI } from "@/lib/shopify-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
+import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -77,11 +78,6 @@ async function retryFailedBackground(mappingIds: string[]) {
 
     const batchPromises = batchIds.map(async (mappingId, index) => {
       try {
-        // Add small delay between requests in same batch to avoid Shopify throttling
-        if (index > 0) {
-          await new Promise(resolve => setTimeout(resolve, 200 * index)); // 200ms stagger
-        }
-
         const mapping = await prisma.customerMapping.findUnique({
           where: { id: mappingId },
           include: {
@@ -94,12 +90,19 @@ async function retryFailedBackground(mappingIds: string[]) {
           return;
         }
 
-        // Use totalSpent from database instead of calling API
+        // Use totalSpent from database instead of calling API — qua queue
         const totalSpent = Number(mapping.nhanhCustomer.totalSpent);
-        await shopifyAPI.syncCustomerTotalSpent(
-          mapping.shopifyCustomerId,
-          totalSpent
-        );
+        await shopifyQueue.enqueue({
+          type: "graphql",
+          priority: QueuePriority.BULK,
+          entityId: `customer_${mapping.id}`,
+          action: "sync_customer_total_spent",
+          source: "retry_failed",
+          execute: () => shopifyAPI.syncCustomerTotalSpent(
+            mapping.shopifyCustomerId!,
+            totalSpent
+          ),
+        });
 
         await prisma.customerMapping.update({
           where: { id: mappingId },

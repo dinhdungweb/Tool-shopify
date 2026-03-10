@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { shopifyAPI } from "@/lib/shopify-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
+import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -115,13 +116,15 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string, forceSync
           return;
         }
 
-        // ONLY delay when actually calling Shopify API (to avoid rate limit)
-        if (index > 0) {
-          await new Promise(resolve => setTimeout(resolve, 200 * index)); // 200ms stagger
-        }
-
-        // Only call Shopify API when changed
-        await shopifyAPI.syncCustomerTotalSpent(mapping.shopifyCustomerId, totalSpent);
+        // ONLY call Shopify API when changed — qua queue (queue handles throttle)
+        await shopifyQueue.enqueue({
+          type: "graphql",
+          priority: QueuePriority.BULK,
+          entityId: `customer_${mapping.nhanhCustomerId}`,
+          action: "sync_customer_total_spent",
+          source: "bulk_sync_background",
+          execute: () => shopifyAPI.syncCustomerTotalSpent(mapping.shopifyCustomerId!, totalSpent),
+        });
 
         await prisma.customerMapping.update({
           where: { id: mappingId },

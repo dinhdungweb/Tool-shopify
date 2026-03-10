@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { shopifyProductAPI } from "@/lib/shopify-product-api";
 import { nhanhProductAPI } from "@/lib/nhanh-product-api";
 import { evaluateRules, executeActions } from "@/lib/sync-rules-engine";
+import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 
 export const dynamic = "force-dynamic";
 
@@ -155,13 +156,20 @@ export async function POST(request: NextRequest) {
 
             console.log(`[Sync] ${mapping.nhanhProductName}: TOTAL for ${group.locationName} = ${totalQuantity} (${depotDetails.join(' + ')})`);
 
-            // Update Shopify inventory at specific location with SUMMED quantity
-            await shopifyProductAPI.updateVariantInventory(
-              mapping.shopifyVariantId,
-              totalQuantity,
-              mapping.shopifyInventoryItemId || undefined,
-              shopifyLocationId
-            );
+            // Update Shopify inventory at specific location with SUMMED quantity — qua queue
+            await shopifyQueue.enqueue({
+              type: "rest",
+              priority: QueuePriority.MANUAL,
+              entityId: `product_${mapping.nhanhProductId}_loc_${shopifyLocationId}`,
+              action: "update_inventory",
+              source: "sync_product_manual",
+              execute: () => shopifyProductAPI.updateVariantInventory(
+                mapping.shopifyVariantId!,
+                totalQuantity,
+                mapping.shopifyInventoryItemId || undefined,
+                shopifyLocationId
+              ),
+            });
 
             syncResults.push({
               locationId: shopifyLocationId,
@@ -181,11 +189,18 @@ export async function POST(request: NextRequest) {
         const inventoryData = await nhanhProductAPI.getProductInventory(mapping.nhanhProductId);
         console.log(`[Sync] ${mapping.nhanhProductName}: quantity = ${inventoryData.quantity}`);
 
-        const result = await shopifyProductAPI.updateVariantInventory(
-          mapping.shopifyVariantId,
-          inventoryData.quantity,
-          mapping.shopifyInventoryItemId || undefined
-        );
+        const result = await shopifyQueue.enqueue({
+          type: "rest",
+          priority: QueuePriority.MANUAL,
+          entityId: `product_${mapping.nhanhProductId}`,
+          action: "update_inventory",
+          source: "sync_product_manual",
+          execute: () => shopifyProductAPI.updateVariantInventory(
+            mapping.shopifyVariantId!,
+            inventoryData.quantity,
+            mapping.shopifyInventoryItemId || undefined
+          ),
+        });
 
         // Cache inventoryItemId
         if (result.inventoryItemId) {

@@ -1,6 +1,7 @@
 import { prisma } from './prisma';
 import { shopifyAPI } from './shopify-api';
 import { getTierLabel } from './tier-constants';
+import { shopifyQueue, QueuePriority } from './shopify-queue';
 
 export class RewardService {
     /**
@@ -75,12 +76,19 @@ export class RewardService {
                     try {
                         if (!mapping.shopifyCustomerId) continue;
 
-                        // Reset points to 0
-                        await shopifyAPI.updateCustomerMetafield(mapping.shopifyCustomerId, {
-                            namespace: 'rewards',
-                            key: 'points',
-                            value: '0',
-                            type: 'number_integer',
+                        // Reset points to 0 — qua queue
+                        await shopifyQueue.enqueue({
+                            type: "graphql",
+                            priority: QueuePriority.BULK,
+                            entityId: `customer_${mapping.shopifyCustomerId}`,
+                            action: "update_metafield_points",
+                            source: "reward_service_expiration",
+                            execute: () => shopifyAPI.updateCustomerMetafield(mapping.shopifyCustomerId!, {
+                                namespace: 'rewards',
+                                key: 'points',
+                                value: '0',
+                                type: 'number_integer',
+                            }),
                         });
 
                         successful++;
@@ -109,11 +117,6 @@ export class RewardService {
                                 },
                             },
                         }).catch(() => { });
-                    }
-
-                    // Delay 200ms (Cân bằng tốc độ và Rate Limit)
-                    if (i < mappings.length - 1) {
-                        await new Promise((r) => setTimeout(r, 200));
                     }
                 }
 

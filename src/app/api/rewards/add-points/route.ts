@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { shopifyAPI } from "@/lib/shopify-api";
 import { CustomerTier, getTierLabel } from "@/lib/tier-constants";
+import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -139,12 +140,19 @@ async function addPointsInBackground(
                 continue;
             }
 
-            // Cộng điểm vào Shopify metafield rewards.points
-            await shopifyAPI.updateCustomerMetafield(mapping.shopifyCustomerId, {
-                namespace: "rewards",
-                key: "points",
-                value: points.toString(),
-                type: "number_integer",
+            // Cộng điểm vào Shopify metafield rewards.points — qua queue
+            await shopifyQueue.enqueue({
+                type: "graphql",
+                priority: QueuePriority.BULK,
+                entityId: `customer_${mapping.shopifyCustomerId}`,
+                action: "update_metafield_points",
+                source: "add_points",
+                execute: () => shopifyAPI.updateCustomerMetafield(mapping.shopifyCustomerId!, {
+                    namespace: "rewards",
+                    key: "points",
+                    value: points.toString(),
+                    type: "number_integer",
+                }),
             });
 
             successful++;
@@ -171,11 +179,6 @@ async function addPointsInBackground(
                     },
                 },
             }).catch(() => { });
-        }
-
-        // Delay 200ms cho an toàn (Cân bằng tốc độ và Rate Limit)
-        if (i < mappings.length - 1) {
-            await new Promise((r) => setTimeout(r, 200));
         }
     }
 

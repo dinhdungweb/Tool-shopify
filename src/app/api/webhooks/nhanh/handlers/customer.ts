@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { shopifyAPI } from "@/lib/shopify-api";
+import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 
 /**
  * Handle customer update webhook
@@ -65,14 +66,21 @@ export async function handleCustomerWebhook(payload: any) {
           },
         });
 
-        // Sync to Shopify
+        // Sync to Shopify — qua queue
         console.log(`  🔄 Syncing to Shopify customer ${mapping.shopifyCustomerId}...`);
 
         const shopifyGid = mapping.shopifyCustomerId.startsWith("gid://")
           ? mapping.shopifyCustomerId
           : `gid://shopify/Customer/${mapping.shopifyCustomerId}`;
 
-        await shopifyAPI.syncCustomerTotalSpent(shopifyGid, totalSpent);
+        await shopifyQueue.enqueue({
+          type: "graphql",
+          priority: QueuePriority.WEBHOOK,
+          entityId: `customer_${nhanhCustomerId}`,
+          action: "sync_customer_total_spent",
+          source: "webhook_customer",
+          execute: () => shopifyAPI.syncCustomerTotalSpent(shopifyGid, totalSpent),
+        });
 
         // Update mapping
         await prisma.customerMapping.update({
