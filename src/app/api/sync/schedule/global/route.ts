@@ -1,9 +1,7 @@
 // API Route: Global Auto Sync Configuration
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import { validateCronExpression } from '@/lib/cron-scheduler';
-
-const prisma = new PrismaClient();
 
 export const dynamic = 'force-dynamic';
 
