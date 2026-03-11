@@ -12,6 +12,7 @@ export async function POST(request: NextRequest) {
   const job = await prisma.backgroundJob.create({
     data: {
       type: "PULL_NHANH_PRODUCTS",
+      storeId: "default_store",
       total: 0,
       status: "RUNNING",
     },
@@ -42,8 +43,8 @@ async function pullAllProductsBackground(jobId: string) {
 
   try {
     // Check for existing progress
-    const progress = await prisma.pullProgress.findUnique({
-      where: { id: "nhanh_products" },
+    const progress = await prisma.pullProgress.findFirst({
+      where: { storeId: "default_store", type: "nhanh_products" },
     });
 
     nextCursor = progress?.nextCursor || undefined;
@@ -83,11 +84,11 @@ async function pullAllProductsBackground(jobId: string) {
 
         // Get existing product IDs
         const existingIds = await prisma.nhanhProduct.findMany({
-          where: { id: { in: products.map(p => p.id) } },
-          select: { id: true }
+          where: { nhanhId: { in: products.map(p => p.id) }, storeId: "default_store" },
+          select: { nhanhId: true }
         });
 
-        const existingIdSet = new Set(existingIds.map(p => p.id));
+        const existingIdSet = new Set(existingIds.map(p => p.nhanhId));
         const toCreate = products.filter(p => !existingIdSet.has(p.id));
         const toUpdate = products.filter(p => existingIdSet.has(p.id));
 
@@ -95,7 +96,8 @@ async function pullAllProductsBackground(jobId: string) {
         if (toCreate.length > 0) {
           await prisma.nhanhProduct.createMany({
             data: toCreate.map(p => ({
-              id: p.id,
+              nhanhId: p.id,
+              storeId: "default_store",
               name: p.name,
               sku: p.sku,
               barcode: p.barcode,
@@ -126,7 +128,7 @@ async function pullAllProductsBackground(jobId: string) {
               prisma.$transaction(
                 batch.map(p =>
                   prisma.nhanhProduct.update({
-                    where: { id: p.id },
+                    where: { storeId_nhanhId: { storeId: "default_store", nhanhId: p.id } },
                     data: {
                       name: p.name,
                       sku: p.sku,
@@ -187,9 +189,10 @@ async function pullAllProductsBackground(jobId: string) {
 
         // Save progress after each page
         await prisma.pullProgress.upsert({
-          where: { id: "nhanh_products" },
+          where: { storeId_type: { storeId: "default_store", type: "nhanh_products" } },
           create: {
-            id: "nhanh_products",
+            storeId: "default_store",
+            type: "nhanh_products",
             nextCursor: nextCursor || undefined,
             totalPulled: totalFetched,
             lastPulledAt: new Date(),
@@ -234,9 +237,10 @@ async function pullAllProductsBackground(jobId: string) {
 
         // Save progress even on error
         await prisma.pullProgress.upsert({
-          where: { id: "nhanh_products" },
+          where: { storeId_type: { storeId: "default_store", type: "nhanh_products" } },
           create: {
-            id: "nhanh_products",
+            storeId: "default_store",
+            type: "nhanh_products",
             nextCursor: nextCursor || undefined,
             totalPulled: totalFetched,
             lastPulledAt: new Date(),
@@ -270,7 +274,7 @@ async function pullAllProductsBackground(jobId: string) {
 
     // Mark as completed
     await prisma.pullProgress.update({
-      where: { id: "nhanh_products" },
+      where: { storeId_type: { storeId: "default_store", type: "nhanh_products" } },
       data: {
         isCompleted: true,
         nextCursor: undefined,
@@ -313,9 +317,10 @@ async function pullAllProductsBackground(jobId: string) {
     // Save error state
     try {
       await prisma.pullProgress.upsert({
-        where: { id: "nhanh_products" },
+        where: { storeId_type: { storeId: "default_store", type: "nhanh_products" } },
         create: {
-          id: "nhanh_products",
+          storeId: "default_store",
+          type: "nhanh_products",
           nextCursor: nextCursor || undefined,
           totalPulled: totalFetched,
           lastPulledAt: new Date(),

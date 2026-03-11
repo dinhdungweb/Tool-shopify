@@ -234,7 +234,8 @@ async function pullAllCustomersInBackground(filters?: {
         if (toCreate.length > 0) {
           await prisma.nhanhCustomer.createMany({
             data: toCreate.map(customer => ({
-              id: customer.id,
+              nhanhId: customer.id,
+              storeId: "default_store",
               name: customer.name,
               phone: customer.phone || null,
               email: customer.email || null,
@@ -433,9 +434,10 @@ async function pullAllCustomersInBackground(filters?: {
 
       // Save progress with filter metadata
       await prisma.pullProgress.upsert({
-        where: { id: progressId },
+        where: { storeId_type: { storeId: "default_store", type: "customers" } },
         create: {
-          id: progressId,
+          storeId: "default_store",
+          type: "customers",
           nextCursor: nextCursor ? nextCursor : undefined,
           totalPulled: totalProcessed,
           lastPulledAt: now,
@@ -467,7 +469,7 @@ async function pullAllCustomersInBackground(filters?: {
 
     // Mark as completed
     await prisma.pullProgress.update({
-      where: { id: progressId },
+      where: { storeId_type: { storeId: "default_store", type: "customers" } },
       data: {
         isCompleted: true,
         nextCursor: undefined,
@@ -526,9 +528,10 @@ async function pullAllCustomersInBackground(filters?: {
     }
     // Save error state
     await prisma.pullProgress.upsert({
-      where: { id: progressId },
+      where: { storeId_type: { storeId: "default_store", type: "customers" } },
       create: {
-        id: progressId,
+        storeId: "default_store",
+        type: "customers",
         nextCursor: nextCursor ? nextCursor : undefined,
         totalPulled: totalProcessed,
         lastPulledAt: now,

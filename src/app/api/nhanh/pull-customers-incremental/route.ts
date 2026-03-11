@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
     const job = await prisma.backgroundJob.create({
       data: {
         type: 'INCREMENTAL_PULL_CUSTOMERS',
+        storeId: 'default_store',
         total: 0,
         status: 'RUNNING',
         metadata: {
@@ -72,27 +73,27 @@ async function incrementalPullInBackground(jobId: string) {
       // Bulk check existing customers (optimized)
       const customerIds = response.customers.map(c => c.id);
       const existingCustomers = await prisma.nhanhCustomer.findMany({
-        where: { id: { in: customerIds } },
-        select: { id: true, lastPulledAt: true },
+        where: { nhanhId: { in: customerIds }, storeId: 'default_store' },
+        select: { nhanhId: true, lastPulledAt: true },
       });
-      
-      const existingMap = new Map(existingCustomers.map(c => [c.id, c.lastPulledAt]));
-      
+
+      const existingMap = new Map(existingCustomers.map(c => [c.nhanhId, c.lastPulledAt]));
+
       // Categorize customers
       const toCreate: typeof response.customers = [];
       const toUpdate: typeof response.customers = [];
       const toSkip: typeof response.customers = [];
-      
+
       for (const customer of response.customers) {
         const lastPulled = existingMap.get(customer.id);
-        
+
         if (!lastPulled) {
           // New customer
           toCreate.push(customer);
         } else {
           // Check if needs update
           const hoursSinceLastPull = (now.getTime() - lastPulled.getTime()) / (1000 * 60 * 60);
-          
+
           if (hoursSinceLastPull < 24) {
             toSkip.push(customer);
           } else {
@@ -100,12 +101,13 @@ async function incrementalPullInBackground(jobId: string) {
           }
         }
       }
-      
+
       // Bulk create new customers
       if (toCreate.length > 0) {
         await prisma.nhanhCustomer.createMany({
           data: toCreate.map(customer => ({
-            id: customer.id,
+            nhanhId: customer.id,
+            storeId: 'default_store',
             name: customer.name,
             phone: customer.phone || null,
             email: customer.email || null,
@@ -120,7 +122,7 @@ async function incrementalPullInBackground(jobId: string) {
         });
         created += toCreate.length;
       }
-      
+
       // Bulk update existing customers (in batches)
       if (toUpdate.length > 0) {
         const updateBatchSize = 50;
@@ -129,7 +131,7 @@ async function incrementalPullInBackground(jobId: string) {
           await prisma.$transaction(
             batch.map(customer =>
               prisma.nhanhCustomer.update({
-                where: { id: customer.id },
+                where: { storeId_nhanhId: { storeId: 'default_store', nhanhId: customer.id } },
                 data: {
                   name: customer.name,
                   phone: customer.phone || null,
@@ -147,9 +149,9 @@ async function incrementalPullInBackground(jobId: string) {
         }
         updated += toUpdate.length;
       }
-      
+
       skipped += toSkip.length;
-      
+
       // Track consecutive skipped customers
       if (toCreate.length > 0 || toUpdate.length > 0) {
         consecutiveSkipped = 0; // Reset if we found new/updated customers
@@ -180,7 +182,7 @@ async function incrementalPullInBackground(jobId: string) {
             consecutiveSkipped,
           },
         },
-      }).catch(() => {});
+      }).catch(() => { });
 
       // Stop early if we've seen too many consecutive fresh customers
       if (consecutiveSkipped >= maxConsecutiveSkipped) {
@@ -222,10 +224,10 @@ async function incrementalPullInBackground(jobId: string) {
           stoppedEarly,
         },
       },
-    }).catch(() => {});
+    }).catch(() => { });
   } catch (error: any) {
     console.error("Error in incremental pull:", error);
-    
+
     // Mark job as failed
     await prisma.backgroundJob.update({
       where: { id: jobId },
@@ -234,6 +236,6 @@ async function incrementalPullInBackground(jobId: string) {
         error: error.message,
         completedAt: new Date(),
       },
-    }).catch(() => {});
+    }).catch(() => { });
   }
 }

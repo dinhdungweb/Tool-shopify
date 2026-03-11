@@ -13,7 +13,7 @@ export const maxDuration = 300; // 5 minutes for long-running operation
 export async function POST(request: NextRequest) {
   try {
     console.log("Starting to pull customers from Nhanh.vn...");
-    
+
     let created = 0;
     let updated = 0;
     let totalProcessed = 0;
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     while (hasMore && batchCount < maxBatches) {
       batchCount++;
       console.log(`Processing batch ${batchCount}...`);
-      
+
       // Fetch one batch
       const response = await nhanhAPI.getCustomers({
         limit: batchSize,
@@ -39,9 +39,10 @@ export async function POST(request: NextRequest) {
       // Save batch to database using bulk operations
       const upsertPromises = response.customers.map(async (customer) => {
         const result = await prisma.nhanhCustomer.upsert({
-          where: { id: customer.id },
+          where: { storeId_nhanhId: { storeId: "default_store", nhanhId: customer.id } },
           create: {
-            id: customer.id,
+            nhanhId: customer.id,
+            storeId: "default_store",
             name: customer.name,
             phone: customer.phone || null,
             email: customer.email || null,
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest) {
             lastPulledAt: new Date(),
           },
         });
-        
+
         if (result.createdAt.getTime() === result.updatedAt.getTime()) {
           return { created: true };
         } else {
@@ -83,7 +84,7 @@ export async function POST(request: NextRequest) {
       console.log(`Batch ${batchCount} completed. Total processed: ${totalProcessed}`);
     }
 
-    const message = hasMore 
+    const message = hasMore
       ? `Processed ${totalProcessed} customers (more available, run again to continue)`
       : `Pull completed! All ${totalProcessed} customers processed`;
 
