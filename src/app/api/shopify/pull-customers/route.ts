@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { shopifyAPI } from "@/lib/shopify-api";
+import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes - but will continue in background
@@ -21,12 +22,12 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const { query, forceRestart } = body;
-    
+
     const progressId = query ? `shopify_customers_${Buffer.from(query).toString('base64').substring(0, 20)}` : "shopify_customers";
     const progress = await prisma.pullProgress.findUnique({
       where: { id: progressId },
     });
-    
+
     // If forceRestart, delete progress and allow restart
     if (forceRestart) {
       if (progress) {
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
         }
       }
     }
-    
+
     // Create background job for tracking
     const job = await prisma.backgroundJob.create({
       data: {
@@ -63,10 +64,10 @@ export async function POST(request: NextRequest) {
 
     // Start background process immediately and return
     pullAllCustomersBackground(query, job.id);
-    
+
     const filterMessage = query ? ` with filter: "${query}"` : "";
     const restartMessage = forceRestart ? " (restarting from beginning)" : "";
-    
+
     return NextResponse.json({
       success: true,
       jobId: job.id,
@@ -83,7 +84,7 @@ export async function POST(request: NextRequest) {
 async function pullAllCustomersBackground(query?: string, jobId?: string) {
   const filterLog = query ? ` with filter: "${query}"` : "";
   console.log(`🚀 Starting background pull of Shopify customers${filterLog}...`);
-  
+
   let created = 0;
   let updated = 0;
   let failed = 0;
@@ -91,7 +92,7 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
   let pageCount = 0;
   let cursor: string | null = null;
   const startTime = Date.now();
-  
+
   try {
     // Check for existing progress
     const progressId = query ? `shopify_customers_${Buffer.from(query).toString('base64').substring(0, 20)}` : "shopify_customers";
@@ -100,7 +101,7 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
     });
 
     let hasNextPage = true;
-    
+
     // Only resume if pull is incomplete
     // If completed, start fresh
     const shouldResume = progress && !progress.isCompleted && progress.nextCursor;
@@ -118,13 +119,20 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
     while (hasNextPage) {
       pageCount++;
       const pageStartTime = Date.now();
-      
+
       try {
         console.log(`📦 Fetching page ${pageCount}...`);
-        
-        const result = await shopifyAPI.getAllCustomers(250, cursor || undefined, query);
-        const { customers: shopifyCustomers, pageInfo } = result;
-        
+
+        const result = await shopifyQueue.enqueue({
+          type: "graphql",
+          priority: QueuePriority.BULK,
+          entityId: `pull_customers_page_${pageCount}`,
+          action: "pull_customers",
+          source: "pull_customers_background",
+          execute: () => shopifyAPI.getAllCustomers(250, cursor || undefined, query),
+        }) as any;
+        const { customers: shopifyCustomers, pageInfo } = result as { customers: any[]; pageInfo: any };
+
         if (shopifyCustomers.length === 0) {
           break;
         }
@@ -134,7 +142,7 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
 
         // Bulk upsert customers
         const dbStartTime = Date.now();
-        
+
         // Get existing customer IDs in this batch
         const existingIds = await prisma.shopifyCustomer.findMany({
           where: {
@@ -142,11 +150,11 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
           },
           select: { id: true }
         });
-        
+
         const existingIdSet = new Set(existingIds.map(c => c.id));
         const toCreate = shopifyCustomers.filter(c => !existingIdSet.has(c.id));
         const toUpdate = shopifyCustomers.filter(c => existingIdSet.has(c.id));
-        
+
         // Bulk create new customers
         if (toCreate.length > 0) {
           await prisma.shopifyCustomer.createMany({
@@ -166,7 +174,7 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
           });
           created += toCreate.length;
         }
-        
+
         // Bulk update existing customers
         if (toUpdate.length > 0) {
           const updateBatchSize = 100;
@@ -196,7 +204,7 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
 
         const dbTime = ((Date.now() - dbStartTime) / 1000).toFixed(2);
         totalFetched += shopifyCustomers.length;
-        
+
         console.log(`  💾 Saved to DB in ${dbTime}s (Created: ${toCreate.length}, Updated: ${toUpdate.length})`);
         console.log(`  📊 Progress: ${totalFetched} total, Page ${pageCount} completed`);
 
@@ -217,7 +225,7 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
                 pages: pageCount,
               },
             },
-          }).catch(() => {});
+          }).catch(() => { });
         }
 
         // Check if there are more pages
@@ -245,17 +253,12 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
         const pageTime = ((Date.now() - pageStartTime) / 1000).toFixed(2);
         console.log(`  ⏱️  Total page time: ${pageTime}s\n`);
 
-        // Rate limiting: Add delay between pages to avoid hitting Shopify API limits
-        // Shopify allows 2 requests/second for REST API, but we're using GraphQL which is more generous
-        // Still, add small delay to be safe
-        if (hasNextPage) {
-          await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
-        }
+        // Queue đã quản lý rate limit, không cần delay thêm
 
       } catch (pageError: any) {
         console.error(`❌ Error on page ${pageCount}:`, pageError.message);
         failed += 250; // Assume full page failed
-        
+
         // Save progress even on error
         await prisma.pullProgress.upsert({
           where: { id: progressId },
@@ -272,7 +275,7 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
             lastPulledAt: new Date(),
           },
         });
-        
+
         // Continue to next page
         continue;
       }
@@ -320,7 +323,7 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
             updated,
           },
         },
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
   } catch (error: any) {
@@ -335,9 +338,9 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
           error: error.message,
           completedAt: new Date(),
         },
-      }).catch(() => {});
+      }).catch(() => { });
     }
-    
+
     // Save error state
     try {
       const progressId = query ? `shopify_customers_${Buffer.from(query).toString('base64').substring(0, 20)}` : "shopify_customers";
