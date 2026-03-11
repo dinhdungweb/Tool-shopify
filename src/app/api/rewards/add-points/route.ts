@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
                 if (countForTier > 0) {
                     const schedule = await prisma.pointExpirationSchedule.create({
                         data: {
+                            storeId: "default_store",
                             tier: t,
                             pointsAdded: points,
                             expiresAt: new Date(expirationDate),

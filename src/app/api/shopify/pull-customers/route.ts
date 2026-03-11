@@ -24,15 +24,15 @@ export async function POST(request: NextRequest) {
     const { query, forceRestart } = body;
 
     const progressId = query ? `shopify_customers_${Buffer.from(query).toString('base64').substring(0, 20)}` : "shopify_customers";
-    const progress = await prisma.pullProgress.findUnique({
-      where: { id: progressId },
+    const progress = await prisma.pullProgress.findFirst({
+      where: { storeId: "default_store", type: "shopify_customers" },
     });
 
     // If forceRestart, delete progress and allow restart
     if (forceRestart) {
       if (progress) {
-        await prisma.pullProgress.delete({
-          where: { id: progressId },
+        await prisma.pullProgress.deleteMany({
+          where: { storeId: "default_store", type: "shopify_customers" },
         });
         console.log(`🔄 Force restart: Deleted progress for ${progressId}`);
       }
@@ -54,6 +54,7 @@ export async function POST(request: NextRequest) {
     const job = await prisma.backgroundJob.create({
       data: {
         type: "PULL_SHOPIFY_CUSTOMERS",
+        storeId: "default_store",
         total: 0,
         status: "RUNNING",
         metadata: {
@@ -96,8 +97,8 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
   try {
     // Check for existing progress
     const progressId = query ? `shopify_customers_${Buffer.from(query).toString('base64').substring(0, 20)}` : "shopify_customers";
-    const progress = await prisma.pullProgress.findUnique({
-      where: { id: progressId },
+    const progress = await prisma.pullProgress.findFirst({
+      where: { storeId: "default_store", type: "shopify_customers" },
     });
 
     let hasNextPage = true;
@@ -146,12 +147,13 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
         // Get existing customer IDs in this batch
         const existingIds = await prisma.shopifyCustomer.findMany({
           where: {
-            id: { in: shopifyCustomers.map(c => c.id) }
+            shopifyId: { in: shopifyCustomers.map(c => c.id) },
+            storeId: "default_store",
           },
-          select: { id: true }
+          select: { shopifyId: true }
         });
 
-        const existingIdSet = new Set(existingIds.map(c => c.id));
+        const existingIdSet = new Set(existingIds.map(c => c.shopifyId));
         const toCreate = shopifyCustomers.filter(c => !existingIdSet.has(c.id));
         const toUpdate = shopifyCustomers.filter(c => existingIdSet.has(c.id));
 
@@ -159,7 +161,8 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
         if (toCreate.length > 0) {
           await prisma.shopifyCustomer.createMany({
             data: toCreate.map(customer => ({
-              id: customer.id,
+              shopifyId: customer.id,
+              storeId: "default_store",
               email: customer.email || null,
               firstName: customer.firstName || null,
               lastName: customer.lastName || null,
@@ -183,7 +186,7 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
             await prisma.$transaction(
               batch.map(customer =>
                 prisma.shopifyCustomer.update({
-                  where: { id: customer.id },
+                  where: { storeId_shopifyId: { storeId: "default_store", shopifyId: customer.id } },
                   data: {
                     email: customer.email || null,
                     firstName: customer.firstName || null,
@@ -234,9 +237,10 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
 
         // Save progress after each page
         await prisma.pullProgress.upsert({
-          where: { id: progressId },
+          where: { storeId_type: { storeId: "default_store", type: "shopify_customers" } },
           create: {
-            id: progressId,
+            storeId: "default_store",
+            type: "shopify_customers",
             nextCursor: cursor ? cursor : undefined,
             totalPulled: totalFetched,
             lastPulledAt: new Date(),
@@ -261,9 +265,10 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
 
         // Save progress even on error
         await prisma.pullProgress.upsert({
-          where: { id: progressId },
+          where: { storeId_type: { storeId: "default_store", type: "shopify_customers" } },
           create: {
-            id: progressId,
+            storeId: "default_store",
+            type: "shopify_customers",
             nextCursor: cursor ? cursor : undefined,
             totalPulled: totalFetched,
             lastPulledAt: new Date(),
@@ -296,7 +301,7 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
 
     // Mark as completed
     await prisma.pullProgress.update({
-      where: { id: progressId },
+      where: { storeId_type: { storeId: "default_store", type: "shopify_customers" } },
       data: {
         isCompleted: true,
         nextCursor: undefined,
@@ -345,9 +350,10 @@ async function pullAllCustomersBackground(query?: string, jobId?: string) {
     try {
       const progressId = query ? `shopify_customers_${Buffer.from(query).toString('base64').substring(0, 20)}` : "shopify_customers";
       await prisma.pullProgress.upsert({
-        where: { id: progressId },
+        where: { storeId_type: { storeId: "default_store", type: "shopify_customers" } },
         create: {
-          id: progressId,
+          storeId: "default_store",
+          type: "shopify_customers",
           nextCursor: cursor || undefined,
           totalPulled: totalFetched,
           lastPulledAt: new Date(),

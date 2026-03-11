@@ -169,9 +169,10 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('✅ Validation passed, creating campaign...');
-    
+
     const campaign = await prisma.saleCampaign.create({
       data: {
+        storeId: "default_store",
         name,
         description,
         discountType,
