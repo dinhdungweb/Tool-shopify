@@ -1,8 +1,8 @@
-// API Route: Pull Products from Shopify (OPTIMIZED with bulk operations)
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import axios from "axios";
 import { getShopifyConfig } from "@/lib/api-config";
+import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // Will continue in background
@@ -138,16 +138,23 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
           }
         `;
 
-        const response: any = await axios.post(
-          graphqlUrl,
-          { query, variables: { cursor } },
-          {
-            headers: {
-              "X-Shopify-Access-Token": accessToken,
-              "Content-Type": "application/json",
-            },
-          }
-        );
+        const response: any = await shopifyQueue.enqueue({
+          type: "graphql",
+          priority: QueuePriority.BULK,
+          entityId: `pull_products_page_${pageCount}`,
+          action: "pull_products",
+          source: "pull_products_background",
+          execute: () => axios.post(
+            graphqlUrl,
+            { query: query, variables: { cursor } },
+            {
+              headers: {
+                "X-Shopify-Access-Token": accessToken,
+                "Content-Type": "application/json",
+              },
+            }
+          ),
+        });
 
         if (response.data.errors) {
           throw new Error(response.data.errors.map((e: any) => e.message).join(", "));
@@ -300,10 +307,7 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
         // Reset error counter on success
         consecutiveErrors = 0;
 
-        // Rate limiting delay
-        if (hasNextPage) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
+        // Queue đã quản lý rate limit, không cần delay thêm
 
       } catch (pageError: any) {
         console.error(`❌ Error on page ${pageCount}:`, pageError.message);
