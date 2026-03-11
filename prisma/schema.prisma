@@ -7,8 +7,154 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ==================== MULTI-TENANT MODELS ====================
+
+enum UserRole {
+  SUPER_ADMIN
+  USER
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members OrgMember[]
+  stores  StoreConnection[]
+
+  @@index([slug])
+  @@map("organizations")
+}
+
+model OrgMember {
+  id        String   @id @default(cuid())
+  userId    String
+  orgId     String
+  role      OrgRole  @default(MEMBER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, orgId])
+  @@index([userId])
+  @@index([orgId])
+  @@map("org_members")
+}
+
+model StoreConnection {
+  id    String @id @default(cuid())
+  orgId String
+  name  String // "Shop chính", "Shop US" etc.
+
+  // Shopify credentials (encrypted)
+  shopifyStoreUrl    String?
+  shopifyAccessToken String?
+
+  // Nhanh credentials (encrypted)
+  nhanhApiUrl      String?
+  nhanhAppId       String?
+  nhanhBusinessId  String?
+  nhanhAccessToken String?
+
+  // Webhook secret (unique per store for routing)
+  webhookSecret String @unique @default(cuid())
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  // Scoped data
+  nhanhCustomers    NhanhCustomer[]
+  shopifyCustomers  ShopifyCustomer[]
+  customerMappings  CustomerMapping[]
+  nhanhProducts     NhanhProduct[]
+  shopifyProducts   ShopifyProduct[]
+  productMappings   ProductMapping[]
+  syncLogs          SyncLog[]
+  productSyncLogs   ProductSyncLog[]
+  webhookLogs       WebhookLog[]
+  backgroundJobs    BackgroundJob[]
+  saleCampaigns     SaleCampaign[]
+  locationMappings  LocationMapping[]
+  syncRules         SyncRule[]
+  pullProgresses    PullProgress[]
+  autoSyncConfigs   AutoSyncConfig[]
+  syncSchedules     SyncSchedule[]
+  pointExpirationSchedules PointExpirationSchedule[]
+
+  @@index([orgId])
+  @@index([webhookSecret])
+  @@map("store_connections")
+}
+
+// ==================== USER / AUTH MODELS ====================
+
+model User {
+  id             String          @id @default(cuid())
+  email          String          @unique
+  password       String
+  firstName      String?
+  lastName       String?
+  role           UserRole        @default(USER)
+  activeStoreId  String?
+  emailVerified  DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  sessions       Session[]
+  passwordResets PasswordReset[]
+  members        OrgMember[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model PasswordReset {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("password_resets")
+}
+
+// ==================== CUSTOMER DATA MODELS ====================
+
 model NhanhCustomer {
-  id           String           @id
+  id           String           @id @default(cuid())
+  storeId      String
+  nhanhId      String           // Original Nhanh customer ID
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
   name         String
@@ -21,8 +167,12 @@ model NhanhCustomer {
   district     String?
   ward         String?
   lastPulledAt DateTime         @default(now())
-  mapping      CustomerMapping?
+  
+  store        StoreConnection  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  mappings     CustomerMapping[]
 
+  @@unique([storeId, nhanhId])
+  @@index([storeId])
   @@index([name])
   @@index([phone])
   @@index([email])
@@ -32,26 +182,57 @@ model NhanhCustomer {
   @@map("nhanh_customers")
 }
 
+model ShopifyCustomer {
+  id                 String          @id @default(cuid())
+  storeId            String
+  shopifyId          String          // Original Shopify customer ID (gid://...)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  email              String?
+  firstName          String?
+  lastName           String?
+  phone              String?
+  defaultAddressPhone String?
+  note               String?         @db.Text
+  totalSpent         Decimal         @default(0) @db.Decimal(18, 2)
+  ordersCount        Int             @default(0)
+  lastPulledAt       DateTime        @default(now())
+
+  store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, shopifyId])
+  @@index([storeId])
+  @@index([phone])
+  @@index([defaultAddressPhone])
+  @@index([email])
+  @@map("shopify_customers")
+}
+
 model CustomerMapping {
-  id                   String        @id @default(cuid())
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  nhanhCustomerId      String        @unique
+  id                   String          @id @default(cuid())
+  storeId              String
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  nhanhCustomerId      String
   nhanhCustomerName    String
   nhanhCustomerPhone   String?
   nhanhCustomerEmail   String?
-  nhanhTotalSpent      Decimal       @default(0) @db.Decimal(18, 2)
-  tier                 String        @default("MEMBER")
+  nhanhTotalSpent      Decimal         @default(0) @db.Decimal(18, 2)
+  tier                 String          @default("MEMBER")
   shopifyCustomerId    String?
   shopifyCustomerEmail String?
   shopifyCustomerName  String?
-  syncStatus           SyncStatus    @default(UNMAPPED)
+  syncStatus           SyncStatus      @default(UNMAPPED)
   lastSyncedAt         DateTime?
   syncError            String?
-  syncAttempts         Int           @default(0)
-  nhanhCustomer        NhanhCustomer @relation(fields: [nhanhCustomerId], references: [id], onDelete: Cascade)
-  syncLogs             SyncLog[]
+  syncAttempts         Int             @default(0)
+  
+  store         StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  nhanhCustomer NhanhCustomer   @relation(fields: [nhanhCustomerId], references: [id], onDelete: Cascade)
+  syncLogs      SyncLog[]
 
+  @@unique([storeId, nhanhCustomerId])
+  @@index([storeId])
   @@index([nhanhCustomerId])
   @@index([shopifyCustomerId])
   @@index([syncStatus])
@@ -59,31 +240,9 @@ model CustomerMapping {
   @@map("customer_mappings")
 }
 
-model AutoSyncConfig {
-  id        String   @id @default("global")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  enabled   Boolean  @default(false)
-  schedule  String   @default("0 */6 * * *")
-
-  @@map("auto_sync_config")
-}
-
-model PullProgress {
-  id           String    @id
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  nextCursor   Json?
-  totalPulled  Int       @default(0)
-  lastPulledAt DateTime?
-  isCompleted  Boolean   @default(false)
-  metadata     String?   // Store filter signature for smart incremental pull
-
-  @@map("pull_progress")
-}
-
 model SyncLog {
   id          String          @id @default(cuid())
+  storeId     String
   createdAt   DateTime        @default(now())
   mappingId   String
   action      SyncAction
@@ -91,51 +250,247 @@ model SyncLog {
   message     String?
   errorDetail String?
   metadata    Json?
-  mapping     CustomerMapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+  
+  store   StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  mapping CustomerMapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
 
+  @@index([storeId])
   @@index([mappingId])
   @@index([createdAt])
   @@map("sync_logs")
 }
 
-model ShopifyCustomer {
-  id                 String   @id
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  email              String?
-  firstName          String?
-  lastName           String?
-  phone              String?
-  defaultAddressPhone String?
-  note               String?  @db.Text
-  totalSpent         Decimal  @default(0) @db.Decimal(18, 2)
-  ordersCount        Int      @default(0)
-  lastPulledAt       DateTime @default(now())
+// ==================== PRODUCT DATA MODELS ====================
 
-  @@index([phone])
-  @@index([defaultAddressPhone])
-  @@index([email])
-  @@map("shopify_customers")
+model NhanhProduct {
+  id           String          @id @default(cuid())
+  storeId      String
+  nhanhId      String          // Original Nhanh product ID
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  name         String
+  sku          String?
+  barcode      String?
+  price        Decimal         @default(0) @db.Decimal(15, 2)
+  comparePrice Decimal?        @db.Decimal(15, 2)
+  quantity     Int             @default(0)
+  categoryId   String?
+  categoryName String?
+  brandId      String?
+  brandName    String?
+  description  String?
+  images       Json?
+  lastPulledAt DateTime        @default(now())
+  
+  store   StoreConnection  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  mappings ProductMapping[]
+
+  @@unique([storeId, nhanhId])
+  @@index([storeId])
+  @@index([name])
+  @@index([sku])
+  @@index([barcode])
+  @@index([lastPulledAt])
+  @@map("nhanh_products")
 }
 
+model ShopifyProduct {
+  id                String          @id @default(cuid())
+  storeId           String
+  shopifyId         String          // Original Shopify product/variant ID
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  title             String
+  handle            String?
+  productType       String?
+  vendor            String?
+  tags              String[]
+  variantId         String?
+  inventoryItemId   String?
+  sku               String?
+  barcode           String?
+  price             Decimal         @default(0) @db.Decimal(15, 2)
+  compareAtPrice    Decimal?        @db.Decimal(15, 2)
+  inventoryQuantity Int             @default(0)
+  images            Json?
+  lastPulledAt      DateTime        @default(now())
+
+  store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, shopifyId])
+  @@index([storeId])
+  @@index([title])
+  @@index([sku])
+  @@index([barcode])
+  @@index([lastPulledAt])
+  @@map("shopify_products")
+}
+
+model ProductMapping {
+  id                     String           @id @default(cuid())
+  storeId                String
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  nhanhProductId         String
+  nhanhProductName       String
+  nhanhSku               String?
+  nhanhBarcode           String?
+  nhanhPrice             Decimal          @default(0) @db.Decimal(15, 2)
+  shopifyProductId       String?
+  shopifyVariantId       String?
+  shopifyInventoryItemId String?
+  shopifyProductTitle    String?
+  shopifySku             String?
+  shopifyBarcode         String?
+  syncStatus             SyncStatus       @default(UNMAPPED)
+  lastSyncedAt           DateTime?
+  syncError              String?
+  syncAttempts           Int              @default(0)
+  
+  store        StoreConnection  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  nhanhProduct NhanhProduct     @relation(fields: [nhanhProductId], references: [id], onDelete: Cascade)
+  syncLogs     ProductSyncLog[]
+
+  @@unique([storeId, nhanhProductId])
+  @@index([storeId])
+  @@index([nhanhProductId])
+  @@index([shopifyProductId])
+  @@index([syncStatus])
+  @@map("product_mappings")
+}
+
+model ProductSyncLog {
+  id          String         @id @default(cuid())
+  storeId     String
+  createdAt   DateTime       @default(now())
+  mappingId   String
+  action      SyncAction
+  status      SyncStatus
+  message     String?
+  errorDetail String?
+  metadata    Json?
+  
+  store   StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  mapping ProductMapping  @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([mappingId])
+  @@index([createdAt])
+  @@map("product_sync_logs")
+}
+
+// ==================== CONFIG & PROGRESS MODELS ====================
+
+model AutoSyncConfig {
+  id        String          @id @default(cuid())
+  storeId   String
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  enabled   Boolean         @default(false)
+  schedule  String          @default("0 */6 * * *")
+
+  store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId])
+  @@map("auto_sync_config")
+}
+
+model SyncSchedule {
+  id        String          @id @default(cuid())
+  storeId   String
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  enabled   Boolean         @default(false)
+  schedule  String
+  type      String
+
+  store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, type])
+  @@index([storeId])
+  @@map("sync_schedules")
+}
+
+model PullProgress {
+  id           String          @id @default(cuid())
+  storeId      String
+  type         String          @default("customers") // "customers" | "products"
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  nextCursor   Json?
+  totalPulled  Int             @default(0)
+  lastPulledAt DateTime?
+  isCompleted  Boolean         @default(false)
+  metadata     String?
+
+  store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, type])
+  @@index([storeId])
+  @@map("pull_progress")
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+  @@map("settings")
+}
+
+// ==================== OPERATIONAL MODELS ====================
+
 model WebhookLog {
-  id          String    @id @default(cuid())
-  createdAt   DateTime  @default(now())
+  id          String          @id @default(cuid())
+  storeId     String?
+  createdAt   DateTime        @default(now())
   source      String
   eventType   String
   payload     Json
-  processed   Boolean   @default(false)
+  processed   Boolean         @default(false)
   processedAt DateTime?
   error       String?
 
+  store StoreConnection? @relation(fields: [storeId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
   @@index([source])
   @@index([processed])
   @@index([createdAt])
   @@map("webhook_logs")
 }
 
+model BackgroundJob {
+  id          String          @id @default(cuid())
+  storeId     String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  type        String
+  status      JobStatus       @default(RUNNING)
+  total       Int             @default(0)
+  processed   Int             @default(0)
+  successful  Int             @default(0)
+  failed      Int             @default(0)
+  startedAt   DateTime        @default(now())
+  completedAt DateTime?
+  error       String?
+  metadata    Json?
+
+  store StoreConnection? @relation(fields: [storeId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@map("background_jobs")
+}
+
 model SaleCampaign {
   id              String         @id @default(cuid())
+  storeId         String
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   name            String
@@ -156,6 +511,9 @@ model SaleCampaign {
   collectionTitle String?
   priceChanges    PriceChange[]
 
+  store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
   @@index([status])
   @@index([scheduleType])
   @@index([startDate])
@@ -192,189 +550,94 @@ model PriceChange {
   @@map("price_changes")
 }
 
-model NhanhProduct {
-  id           String          @id
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  name         String
-  sku          String?
-  barcode      String?
-  price        Decimal         @default(0) @db.Decimal(15, 2)
-  comparePrice Decimal?        @db.Decimal(15, 2)
-  quantity     Int             @default(0)
-  categoryId   String?
-  categoryName String?
-  brandId      String?
-  brandName    String?
-  description  String?
-  images       Json?
-  lastPulledAt DateTime        @default(now())
-  mapping      ProductMapping?
+model LocationMapping {
+  id                  String          @id @default(cuid())
+  storeId             String
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  nhanhDepotId        String
+  nhanhDepotName      String
+  shopifyLocationId   String
+  shopifyLocationName String
+  active              Boolean         @default(true)
 
-  @@index([name])
-  @@index([sku])
-  @@index([barcode])
-  @@index([lastPulledAt])
-  @@map("nhanh_products")
+  store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, nhanhDepotId, shopifyLocationId])
+  @@index([storeId])
+  @@map("location_mappings")
 }
 
-model ShopifyProduct {
-  id                String   @id
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  title             String
-  handle            String?
-  productType       String?
-  vendor            String?
-  tags              String[]
-  variantId         String?
-  inventoryItemId   String? // Cached for faster inventory updates
-  sku               String?
-  barcode           String?
-  price             Decimal  @default(0) @db.Decimal(15, 2)
-  compareAtPrice    Decimal? @db.Decimal(15, 2)
-  inventoryQuantity Int      @default(0)
-  images            Json?
-  lastPulledAt      DateTime @default(now())
+// ==================== SYNC RULES ====================
 
-  @@index([title])
-  @@index([sku])
-  @@index([barcode])
-  @@index([lastPulledAt])
-  @@map("shopify_products")
+model SyncRule {
+  id                String         @id @default(cuid())
+  storeId           String
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  name              String
+  description       String?
+  enabled           Boolean        @default(true)
+  priority          Int            @default(0)
+  targetType        RuleTargetType @default(PRODUCT)
+  conditions        Json
+  conditionOperator String         @default("AND")
+  actions           Json
+  triggerCount      Int            @default(0)
+  lastTriggered     DateTime?
+
+  store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  logs  SyncRuleLog[]
+
+  @@index([storeId])
+  @@index([enabled])
+  @@index([priority])
+  @@index([targetType])
+  @@map("sync_rules")
 }
 
-model ProductMapping {
-  id                  String           @id @default(cuid())
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
-  nhanhProductId      String           @unique
-  nhanhProductName    String
-  nhanhSku            String?
-  nhanhBarcode        String?
-  nhanhPrice          Decimal          @default(0) @db.Decimal(15, 2)
-  shopifyProductId      String?
-  shopifyVariantId      String?
-  shopifyInventoryItemId String? // Cached to avoid extra API call
-  shopifyProductTitle   String?
-  shopifySku            String?
-  shopifyBarcode        String?
-  syncStatus            SyncStatus       @default(UNMAPPED)
-  lastSyncedAt        DateTime?
-  syncError           String?
-  syncAttempts        Int              @default(0)
-  nhanhProduct        NhanhProduct     @relation(fields: [nhanhProductId], references: [id], onDelete: Cascade)
-  syncLogs            ProductSyncLog[]
+model SyncRuleLog {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  ruleId          String
+  mappingId       String?
+  mappingType     String?
+  triggered       Boolean
+  actionsExecuted Json?
+  result          String?
+  message         String?
 
-  @@index([nhanhProductId])
-  @@index([shopifyProductId])
-  @@index([syncStatus])
-  @@map("product_mappings")
-}
+  rule SyncRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
 
-model ProductSyncLog {
-  id          String         @id @default(cuid())
-  createdAt   DateTime       @default(now())
-  mappingId   String
-  action      SyncAction
-  status      SyncStatus
-  message     String?
-  errorDetail String?
-  metadata    Json?
-  mapping     ProductMapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
-
-  @@index([mappingId])
+  @@index([ruleId])
   @@index([createdAt])
-  @@map("product_sync_logs")
+  @@index([mappingType])
+  @@map("sync_rule_logs")
 }
 
-model SyncSchedule {
-  id        String   @id
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  enabled   Boolean  @default(false)
-  schedule  String
-  type      String
+model PointExpirationSchedule {
+  id            String          @id @default(cuid())
+  storeId       String
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  tier          String
+  pointsAdded   Int             @default(0)
+  expiresAt     DateTime
+  status        String          @default("PENDING")
+  executedAt    DateTime?
+  affectedCount Int             @default(0)
+  description   String?
 
-  @@map("sync_schedules")
-}
+  store StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
-model BackgroundJob {
-  id          String    @id @default(cuid())
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  type        String    // "PRODUCT_SYNC", "CUSTOMER_SYNC", "PULL_PRODUCTS", "PULL_CUSTOMERS"
-  status      JobStatus @default(RUNNING)
-  total       Int       @default(0)
-  processed   Int       @default(0)
-  successful  Int       @default(0)
-  failed      Int       @default(0)
-  startedAt   DateTime  @default(now())
-  completedAt DateTime?
-  error       String?
-  metadata    Json?     // Additional info like speed, estimated time, etc.
-
-  @@index([type])
+  @@index([storeId])
+  @@index([tier])
   @@index([status])
-  @@index([createdAt])
-  @@map("background_jobs")
-}
-
-model Setting {
-  id        String   @id @default(cuid())
-  key       String   @unique
-  value     String   @db.Text // Encrypted value
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([key])
-  @@map("settings")
-}
-
-model User {
-  id             String          @id @default(cuid())
-  email          String          @unique
-  password       String          // Hashed with bcrypt
-  firstName      String?
-  lastName       String?
-  emailVerified  DateTime?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  sessions       Session[]
-  passwordResets PasswordReset[]
-
-  @@index([email])
-  @@map("users")
-}
-
-model Session {
-  id        String   @id @default(cuid())
-  userId    String
-  token     String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([token])
   @@index([expiresAt])
-  @@map("sessions")
+  @@map("point_expiration_schedules")
 }
 
-model PasswordReset {
-  id        String   @id @default(cuid())
-  userId    String
-  token     String   @unique
-  expiresAt DateTime
-  used      Boolean  @default(false)
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([token])
-  @@index([expiresAt])
-  @@map("password_resets")
-}
+// ==================== ENUMS ====================
 
 enum JobStatus {
   PENDING
@@ -435,92 +698,4 @@ enum RuleTargetType {
   PRODUCT
   CUSTOMER
   ALL
-}
-
-model LocationMapping {
-  id                String   @id @default(cuid())
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  
-  nhanhDepotId      String
-  nhanhDepotName    String
-  
-  shopifyLocationId String
-  shopifyLocationName String
-  
-  active            Boolean  @default(true)
-  
-  @@unique([nhanhDepotId, shopifyLocationId])
-  @@map("location_mappings")
-}
-
-// Sync Rules & Automation
-model SyncRule {
-  id          String         @id @default(cuid())
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  
-  name        String
-  description String?
-  enabled     Boolean        @default(true)
-  priority    Int            @default(0) // Higher = runs first
-  
-  targetType  RuleTargetType @default(PRODUCT)
-  
-  // Conditions: [{ field, operator, value }]
-  conditions  Json
-  conditionOperator String   @default("AND") // "AND" | "OR"
-  
-  // Actions: [{ type, params }]
-  actions     Json
-  
-  // Stats
-  triggerCount   Int         @default(0)
-  lastTriggered  DateTime?
-  
-  logs        SyncRuleLog[]
-  
-  @@index([enabled])
-  @@index([priority])
-  @@index([targetType])
-  @@map("sync_rules")
-}
-
-model SyncRuleLog {
-  id          String    @id @default(cuid())
-  createdAt   DateTime  @default(now())
-  
-  ruleId      String
-  mappingId   String?
-  mappingType String?   // "product" | "customer"
-  
-  triggered   Boolean   // Did conditions match?
-  actionsExecuted Json? // Actions that were executed
-  result      String?   // "SUCCESS" | "SKIPPED" | "ERROR"
-  message     String?
-  
-  rule        SyncRule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-  
-  @@index([ruleId])
-  @@index([createdAt])
-  @@index([mappingType])
-  @@map("sync_rule_logs")
-}
-
-model PointExpirationSchedule {
-  id            String    @id @default(cuid())
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  tier          String
-  pointsAdded   Int       @default(0)
-  expiresAt     DateTime
-  status        String    @default("PENDING") // PENDING, EXECUTED, CANCELLED
-  executedAt    DateTime?
-  affectedCount Int       @default(0)
-  description   String?
-
-  @@index([tier])
-  @@index([status])
-  @@index([expiresAt])
-  @@map("point_expiration_schedules")
 }
