@@ -35,15 +35,15 @@ export async function POST(request: NextRequest) {
       ? `nhanh_customers_${Buffer.from(filterSignature).toString('base64').substring(0, 20)}`
       : "nhanh_customers";
 
-    const progress = await prisma.pullProgress.findUnique({
-      where: { id: progressId },
+    const progress = await prisma.pullProgress.findFirst({
+      where: { storeId: "default_store", type: "customers" },
     });
 
     // If forceRestart, delete progress and allow restart
     if (forceRestart) {
       if (progress) {
-        await prisma.pullProgress.delete({
-          where: { id: progressId },
+        await prisma.pullProgress.deleteMany({
+          where: { storeId: "default_store", type: "customers" },
         });
         console.log(`🔄 Force restart: Deleted progress for ${progressId}`);
       }
@@ -65,6 +65,7 @@ export async function POST(request: NextRequest) {
     const job = await prisma.backgroundJob.create({
       data: {
         type: "PULL_NHANH_CUSTOMERS",
+        storeId: "default_store",
         total: 0,
         status: "RUNNING",
         metadata: {
@@ -140,8 +141,8 @@ async function pullAllCustomersInBackground(filters?: {
     : "nhanh_customers";
 
   // Check existing progress
-  const progress = await prisma.pullProgress.findUnique({
-    where: { id: progressId },
+  const progress = await prisma.pullProgress.findFirst({
+    where: { storeId: "default_store", type: "customers" },
   });
 
   // Check if filters match previous pull
@@ -199,11 +200,11 @@ async function pullAllCustomersInBackground(filters?: {
         // INCREMENTAL MODE: Check lastPulledAt and skip fresh customers
         const customerIds = response.customers.map(c => c.id);
         const existingCustomers = await prisma.nhanhCustomer.findMany({
-          where: { id: { in: customerIds } },
-          select: { id: true, lastPulledAt: true },
+          where: { nhanhId: { in: customerIds }, storeId: "default_store" },
+          select: { nhanhId: true, lastPulledAt: true },
         });
 
-        const existingMap = new Map(existingCustomers.map(c => [c.id, c.lastPulledAt]));
+        const existingMap = new Map(existingCustomers.map(c => [c.nhanhId, c.lastPulledAt]));
 
         const toCreate: typeof response.customers = [];
         const toUpdate: typeof response.customers = [];
@@ -260,7 +261,7 @@ async function pullAllCustomersInBackground(filters?: {
               prisma.$transaction(
                 batch.map(customer =>
                   prisma.nhanhCustomer.update({
-                    where: { id: customer.id },
+                    where: { storeId_nhanhId: { storeId: "default_store", nhanhId: customer.id } },
                     data: {
                       name: customer.name,
                       phone: customer.phone || null,
@@ -293,12 +294,13 @@ async function pullAllCustomersInBackground(filters?: {
         // FULL MODE: Upsert all customers with SMART CHANGE DETECTION
         const existingCustomers = await prisma.nhanhCustomer.findMany({
           where: {
-            id: { in: response.customers.map(c => c.id) }
+            nhanhId: { in: response.customers.map(c => c.id) },
+            storeId: "default_store",
           },
-          select: { id: true, name: true, phone: true, email: true, totalSpent: true }
+          select: { nhanhId: true, name: true, phone: true, email: true, totalSpent: true }
         });
 
-        const existingMap = new Map(existingCustomers.map(c => [c.id, c]));
+        const existingMap = new Map(existingCustomers.map(c => [c.nhanhId, c]));
         const toCreate: typeof response.customers = [];
         const toUpdate: typeof response.customers = [];
         const toSkip: typeof response.customers = [];
@@ -329,7 +331,8 @@ async function pullAllCustomersInBackground(filters?: {
         if (toCreate.length > 0) {
           await prisma.nhanhCustomer.createMany({
             data: toCreate.map(customer => ({
-              id: customer.id,
+              nhanhId: customer.id,
+              storeId: "default_store",
               name: customer.name,
               phone: customer.phone || null,
               email: customer.email || null,
@@ -356,7 +359,7 @@ async function pullAllCustomersInBackground(filters?: {
               prisma.$transaction(
                 batch.map(customer =>
                   prisma.nhanhCustomer.update({
-                    where: { id: customer.id },
+                    where: { storeId_nhanhId: { storeId: "default_store", nhanhId: customer.id } },
                     data: {
                       name: customer.name,
                       phone: customer.phone || null,
@@ -383,7 +386,7 @@ async function pullAllCustomersInBackground(filters?: {
         // Update only lastPulledAt for unchanged customers (efficient bulk update)
         if (toSkip.length > 0) {
           await prisma.nhanhCustomer.updateMany({
-            where: { id: { in: toSkip.map(c => c.id) } },
+            where: { nhanhId: { in: toSkip.map(c => c.id) }, storeId: "default_store" },
             data: { lastPulledAt: now }
           });
           batchSkipped = toSkip.length;
