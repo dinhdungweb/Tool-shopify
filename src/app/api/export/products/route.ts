@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
 
     // Build query based on filter
     let productIds: string[] = [];
-    
+
     // If filtering by mapping status, get product IDs from mappings first
     if (filter === "mapped") {
       const mappings = await prisma.productMapping.findMany({
@@ -42,31 +42,30 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    // Apply mapping filter
+    // Apply mapping filter (use shopifyId for matching)
     if (filter === "mapped" || filter === "pending" || filter === "synced" || filter === "failed") {
-      where.id = { in: productIds };
+      where.shopifyId = { in: productIds };
     } else if (filter === "unmapped") {
-      // Get all mapped product IDs
       const allMappings = await prisma.productMapping.findMany({
         where: { shopifyProductId: { not: null } },
         select: { shopifyProductId: true },
       });
       const mappedIds = allMappings.map(m => m.shopifyProductId).filter((id): id is string => !!id);
-      where.id = { notIn: mappedIds };
+      where.shopifyId = { notIn: mappedIds };
     }
 
     // Get products
     const products = await prisma.shopifyProduct.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      take: 10000, // Limit for safety
+      take: 10000,
     });
 
     // Get mappings for these products
     const mappings = await prisma.productMapping.findMany({
       where: {
         shopifyProductId: {
-          in: products.map(p => p.id),
+          in: products.map(p => p.shopifyId),
         },
       },
       include: {
@@ -74,7 +73,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Create mapping lookup
+    // Create mapping lookup by shopifyProductId
     const mappingMap = new Map(
       mappings.map(m => [m.shopifyProductId, m])
     );
@@ -82,12 +81,12 @@ export async function GET(request: NextRequest) {
     // Combine products with mappings
     const filteredProducts = products.map(product => ({
       ...product,
-      mapping: mappingMap.get(product.id),
+      mapping: mappingMap.get(product.shopifyId),
     }));
 
     // Format data for export
     const exportData = filteredProducts.map(product => ({
-      "Shopify ID": product.id,
+      "Shopify ID": product.shopifyId,
       "Title": product.title,
       "SKU": product.sku || "",
       "Price": product.price.toString(),
@@ -96,7 +95,7 @@ export async function GET(request: NextRequest) {
       "Nhanh Product": product.mapping?.nhanhProduct?.name || "",
       "Nhanh SKU": product.mapping?.nhanhProduct?.sku || "",
       "Sync Status": product.mapping?.syncStatus || "",
-      "Last Synced": product.mapping?.lastSyncedAt 
+      "Last Synced": product.mapping?.lastSyncedAt
         ? new Date(product.mapping.lastSyncedAt).toLocaleString("vi-VN")
         : "",
       "Created At": new Date(product.createdAt).toLocaleString("vi-VN"),

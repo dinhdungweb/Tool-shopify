@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 
     // Build where clause for search and filter
     const where: any = {};
-    
+
     // Search filter
     if (keyword) {
       where.OR = [
@@ -30,20 +30,18 @@ export async function GET(request: NextRequest) {
 
     // Combined mapping and sync status filter
     if (syncStatus && syncStatus !== "all") {
-      // If filtering by sync status, we need a mapping with that status
       where.AND = [
-        { mapping: { isNot: null } },
-        { mapping: { syncStatus: syncStatus.toUpperCase() } },
-        { mapping: { shopifyCustomerId: { not: null } } },
+        { mappings: { some: {} } },
+        { mappings: { some: { syncStatus: syncStatus.toUpperCase() } } },
+        { mappings: { some: { shopifyCustomerId: { not: null } } } },
       ];
     } else if (mappingStatus === "mapped") {
-      // Only show customers with valid mappings (has shopifyCustomerId)
       where.AND = [
-        { mapping: { isNot: null } },
-        { mapping: { shopifyCustomerId: { not: null } } },
+        { mappings: { some: {} } },
+        { mappings: { some: { shopifyCustomerId: { not: null } } } },
       ];
     } else if (mappingStatus === "unmapped") {
-      where.mapping = null;
+      where.mappings = { none: {} };
     }
 
     // Get total count
@@ -56,13 +54,13 @@ export async function GET(request: NextRequest) {
       skip: (page - 1) * limit,
       take: limit,
       include: {
-        mapping: true,
+        mappings: true,
       },
     });
 
     // Transform to match NhanhCustomer type
     const transformedCustomers = customers.map((c: any) => ({
-      id: c.id,
+      id: c.nhanhId || c.id,
       name: c.name,
       phone: c.phone || undefined,
       email: c.email || undefined,

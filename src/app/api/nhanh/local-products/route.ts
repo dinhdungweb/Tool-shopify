@@ -1,8 +1,6 @@
 // API Route: Get Products from Local Database
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -27,17 +25,17 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    // Mapping status filter
+    // Mapping status filter (one-to-many: use 'some'/'none')
     if (mappingStatus === "mapped") {
-      where.mapping = { isNot: null };
+      where.mappings = { some: {} };
     } else if (mappingStatus === "unmapped") {
-      where.mapping = null;
+      where.mappings = { none: {} };
     }
 
     // Sync status filter
     if (syncStatus && syncStatus !== "all") {
-      where.mapping = {
-        syncStatus: syncStatus.toUpperCase(),
+      where.mappings = {
+        some: { syncStatus: syncStatus.toUpperCase() },
       };
     }
 
@@ -48,7 +46,7 @@ export async function GET(request: NextRequest) {
     const products = await prisma.nhanhProduct.findMany({
       where,
       include: {
-        mapping: true,
+        mappings: true,
       },
       orderBy: { updatedAt: "desc" },
       skip: (page - 1) * limit,
@@ -61,7 +59,7 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         products: products.map((p) => ({
-          id: p.id,
+          id: p.nhanhId || p.id,
           name: p.name,
           sku: p.sku,
           barcode: p.barcode,
