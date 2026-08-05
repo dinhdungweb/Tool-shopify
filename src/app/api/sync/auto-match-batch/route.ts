@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     console.log("📥 Loading unmapped customers...");
     const unmappedCustomers = await prisma.nhanhCustomer.findMany({
       where: {
-        mapping: null,
+        mappings: { none: {} },
         phone: {
           not: null,
           notIn: [""]

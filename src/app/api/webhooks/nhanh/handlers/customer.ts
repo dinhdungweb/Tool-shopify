@@ -9,6 +9,7 @@ import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
  */
 export async function handleCustomerWebhook(payload: any) {
   const startTime = Date.now();
+  const storeId = "default_store";
 
   try {
     // Validate payload
@@ -43,7 +44,9 @@ export async function handleCustomerWebhook(payload: any) {
 
         // Find mapping
         const mapping = await prisma.customerMapping.findUnique({
-          where: { nhanhCustomerId },
+          where: {
+            storeId_nhanhCustomerId: { storeId, nhanhCustomerId },
+          },
         });
 
         if (!mapping || !mapping.shopifyCustomerId) {
@@ -97,6 +100,7 @@ export async function handleCustomerWebhook(payload: any) {
         // Log sync
         await prisma.syncLog.create({
           data: {
+            storeId: mapping.storeId,
             mappingId: mapping.id,
             action: "WEBHOOK_SYNC",
             status: "SYNCED",
@@ -132,7 +136,12 @@ export async function handleCustomerWebhook(payload: any) {
         // Log error
         try {
           const mapping = await prisma.customerMapping.findUnique({
-            where: { nhanhCustomerId: customer.id.toString() },
+            where: {
+              storeId_nhanhCustomerId: {
+                storeId,
+                nhanhCustomerId: customer.id.toString(),
+              },
+            },
           });
 
           if (mapping) {
@@ -147,6 +156,7 @@ export async function handleCustomerWebhook(payload: any) {
 
             await prisma.syncLog.create({
               data: {
+                storeId: mapping.storeId,
                 mappingId: mapping.id,
                 action: "WEBHOOK_SYNC",
                 status: "FAILED",

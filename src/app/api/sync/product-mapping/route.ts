@@ -1,8 +1,7 @@
 // API Route: Product Mapping CRUD
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { prisma } from "@/lib/prisma";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -12,12 +11,13 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "50");
     const status = searchParams.get("status") || "";
 
-    const where: any = {};
+    const where: any = { storeId };
     if (status) {
       where.syncStatus = status.toUpperCase();
     }
@@ -63,6 +63,7 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const body = await request.json();
     const {
       nhanhProductId,
@@ -89,7 +90,9 @@ export async function POST(request: NextRequest) {
 
     // Check if mapping already exists
     const existing = await prisma.productMapping.findUnique({
-      where: { nhanhProductId },
+      where: {
+        storeId_nhanhProductId: { storeId, nhanhProductId },
+      },
     });
 
     if (existing) {
@@ -106,7 +109,7 @@ export async function POST(request: NextRequest) {
     let shopifyInventoryItemId: string | null = null;
     if (shopifyVariantId) {
       const shopifyProduct = await prisma.shopifyProduct.findFirst({
-        where: { variantId: shopifyVariantId },
+        where: { storeId, variantId: shopifyVariantId },
         select: { inventoryItemId: true },
       });
       shopifyInventoryItemId = shopifyProduct?.inventoryItemId || null;
@@ -114,6 +117,7 @@ export async function POST(request: NextRequest) {
 
     const mapping = await prisma.productMapping.create({
       data: {
+        storeId,
         nhanhProductId,
         nhanhProductName,
         nhanhSku,
@@ -154,6 +158,7 @@ export async function POST(request: NextRequest) {
  */
 export async function PATCH(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const body = await request.json();
     const { id, ...updateData } = body;
 
@@ -167,8 +172,20 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    const existing = await prisma.productMapping.findFirst({
+      where: { id, storeId },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { success: false, error: "Mapping not found" },
+        { status: 404 }
+      );
+    }
+
     const mapping = await prisma.productMapping.update({
-      where: { id },
+      where: { id: existing.id },
       data: updateData,
     });
 
@@ -197,6 +214,7 @@ export async function PATCH(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -210,8 +228,8 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await prisma.productMapping.delete({
-      where: { id },
+    await prisma.productMapping.deleteMany({
+      where: { id, storeId },
     });
 
     return NextResponse.json({

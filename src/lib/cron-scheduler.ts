@@ -24,6 +24,7 @@ class CronScheduler {
         config = await prisma.autoSyncConfig.create({
           data: {
             id: 'global',
+            storeId: 'default_store',
             enabled: false,
             schedule: '0 */6 * * *',
           },

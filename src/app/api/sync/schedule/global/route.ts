@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateCronExpression } from '@/lib/cron-scheduler';
+import { getStoreContextOrDefault } from '@/lib/store-context';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,17 +10,18 @@ export const dynamic = 'force-dynamic';
  * GET /api/sync/schedule/global
  * Get global auto sync configuration
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     let config = await prisma.autoSyncConfig.findUnique({
-      where: { id: 'global' },
+      where: { storeId },
     });
 
     // Create default config if not exists
     if (!config) {
       config = await prisma.autoSyncConfig.create({
         data: {
-          id: 'global',
+          storeId,
           enabled: false,
           schedule: '0 */6 * * *', // Every 6 hours
         },
@@ -45,6 +47,7 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const body = await request.json();
     const { enabled, schedule } = body;
 
@@ -58,13 +61,13 @@ export async function POST(request: NextRequest) {
 
     // Update or create config
     const config = await prisma.autoSyncConfig.upsert({
-      where: { id: 'global' },
+      where: { storeId },
       update: {
         enabled: enabled ?? undefined,
         schedule: schedule ?? undefined,
       },
       create: {
-        id: 'global',
+        storeId,
         enabled: enabled ?? false,
         schedule: schedule ?? '0 */6 * * *',
       },

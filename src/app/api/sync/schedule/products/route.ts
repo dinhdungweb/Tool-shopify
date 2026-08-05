@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -7,10 +8,13 @@ export const dynamic = "force-dynamic";
  * GET /api/sync/schedule/products
  * Get product auto-sync schedule configuration
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const config = await prisma.syncSchedule.findUnique({
-      where: { id: "product_auto_sync" },
+      where: {
+        storeId_type: { storeId, type: "PRODUCT" },
+      },
     });
 
     if (!config) {
@@ -49,6 +53,7 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const { enabled, schedule } = await request.json();
 
     if (typeof enabled !== "boolean") {
@@ -76,9 +81,11 @@ export async function POST(request: NextRequest) {
 
     // Upsert configuration
     await prisma.syncSchedule.upsert({
-      where: { id: "product_auto_sync" },
+      where: {
+        storeId_type: { storeId, type: "PRODUCT" },
+      },
       create: {
-        id: "product_auto_sync",
+        storeId,
         enabled,
         schedule,
         type: "PRODUCT",

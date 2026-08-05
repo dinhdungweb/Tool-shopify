@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { SyncStatus } from "@prisma/client";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "50");
@@ -17,7 +19,7 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit;
 
-    const where = status ? { syncStatus: status } : {};
+    const where = status ? { storeId, syncStatus: status } : { storeId };
 
     const [mappings, total] = await Promise.all([
       prisma.customerMapping.findMany({
@@ -59,6 +61,7 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const body = await request.json();
     const {
       nhanhCustomerId,
@@ -83,7 +86,9 @@ export async function POST(request: NextRequest) {
 
     // Check if mapping already exists
     const existing = await prisma.customerMapping.findUnique({
-      where: { nhanhCustomerId },
+      where: {
+        storeId_nhanhCustomerId: { storeId, nhanhCustomerId },
+      },
     });
 
     if (existing) {
@@ -98,6 +103,7 @@ export async function POST(request: NextRequest) {
 
     const mapping = await prisma.customerMapping.create({
       data: {
+        storeId,
         nhanhCustomerId,
         nhanhCustomerName,
         nhanhCustomerPhone,
@@ -113,6 +119,7 @@ export async function POST(request: NextRequest) {
     // Create sync log
     await prisma.syncLog.create({
       data: {
+        storeId,
         mappingId: mapping.id,
         action: "MANUAL_MAPPING",
         status: mapping.syncStatus,
@@ -142,6 +149,7 @@ export async function POST(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const searchParams = request.nextUrl.searchParams;
     const id = searchParams.get("id");
 
@@ -155,8 +163,8 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await prisma.customerMapping.delete({
-      where: { id },
+    await prisma.customerMapping.deleteMany({
+      where: { id, storeId },
     });
 
     return NextResponse.json({

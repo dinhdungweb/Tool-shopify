@@ -11,6 +11,7 @@ import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
  */
 export async function handleOrderWebhook(payload: any) {
     const startTime = Date.now();
+    const storeId = "default_store";
 
     try {
         const event = payload.event;
@@ -64,7 +65,9 @@ export async function handleOrderWebhook(payload: any) {
 
         // Find mapping for this customer
         const mapping = await prisma.customerMapping.findUnique({
-            where: { nhanhCustomerId: customerId },
+            where: {
+                storeId_nhanhCustomerId: { storeId, nhanhCustomerId: customerId },
+            },
         });
 
         if (!mapping || !mapping.shopifyCustomerId) {
@@ -140,6 +143,7 @@ export async function handleOrderWebhook(payload: any) {
         // Log successful sync
         await prisma.syncLog.create({
             data: {
+                storeId: mapping.storeId,
                 mappingId: mapping.id,
                 action: "WEBHOOK_SYNC",
                 status: "SYNCED",

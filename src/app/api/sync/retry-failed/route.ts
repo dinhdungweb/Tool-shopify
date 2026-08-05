@@ -117,6 +117,7 @@ async function retryFailedBackground(mappingIds: string[]) {
 
         await prisma.syncLog.create({
           data: {
+            storeId: mapping.storeId,
             mappingId: mapping.id,
             action: SyncAction.BULK_SYNC, // Use BULK_SYNC for retry (RETRY enum not yet in types)
             status: SyncStatus.SYNCED,

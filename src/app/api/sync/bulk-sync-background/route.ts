@@ -139,6 +139,7 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string, forceSync
 
         await prisma.syncLog.create({
           data: {
+            storeId: mapping.storeId,
             mappingId: mapping.id,
             action: SyncAction.BULK_SYNC,
             status: SyncStatus.SYNCED,

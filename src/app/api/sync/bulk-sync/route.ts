@@ -4,6 +4,7 @@ import { shopifyAPI } from "@/lib/shopify-api";
 import { nhanhAPI } from "@/lib/nhanh-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
 import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes for bulk operations
@@ -14,6 +15,7 @@ export const maxDuration = 300; // 5 minutes for bulk operations
  */
 export async function POST(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const body = await request.json();
     const { mappingIds, forceSync = true } = body; // Default forceSync to true for manual bulk sync
 
@@ -59,7 +61,7 @@ export async function POST(request: NextRequest) {
             where: { id: mappingId },
           });
 
-          if (!mapping || !mapping.shopifyCustomerId) {
+          if (!mapping || mapping.storeId !== storeId || !mapping.shopifyCustomerId) {
             return {
               mappingId,
               success: false,
@@ -126,6 +128,7 @@ export async function POST(request: NextRequest) {
           // Create sync log
           await prisma.syncLog.create({
             data: {
+              storeId,
               mappingId: mapping.id,
               action: SyncAction.BULK_SYNC,
               status: SyncStatus.SYNCED,
@@ -161,6 +164,7 @@ export async function POST(request: NextRequest) {
             // Create error log
             await prisma.syncLog.create({
               data: {
+                storeId,
                 mappingId,
                 action: SyncAction.BULK_SYNC,
                 status: SyncStatus.FAILED,

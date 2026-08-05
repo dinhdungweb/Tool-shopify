@@ -231,6 +231,7 @@ export async function POST(request: NextRequest) {
       // Create sync log
       await prisma.productSyncLog.create({
         data: {
+          storeId: mapping.storeId,
           mappingId,
           action: "MANUAL_SYNC",
           status: "SYNCED",
@@ -277,6 +278,7 @@ export async function POST(request: NextRequest) {
       // Create sync log
       await prisma.productSyncLog.create({
         data: {
+          storeId: mapping.storeId,
           mappingId,
           action: "MANUAL_SYNC",
           status: "FAILED",

@@ -24,6 +24,7 @@ class ProductScheduler {
         config = await prisma.syncSchedule.create({
           data: {
             id: 'product_auto_sync',
+            storeId: 'default_store',
             enabled: false,
             schedule: '0 */6 * * *', // Every 6 hours by default
             type: 'PRODUCT',

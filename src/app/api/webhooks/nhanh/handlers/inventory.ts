@@ -10,6 +10,7 @@ import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
  */
 export async function handleInventoryWebhook(payload: any) {
   const startTime = Date.now();
+  const tenantStoreId = "default_store";
 
   try {
     // Validate payload
@@ -31,7 +32,7 @@ export async function handleInventoryWebhook(payload: any) {
 
     // Fetch active location mappings once
     const locationMappings = await prisma.locationMapping.findMany({
-      where: { active: true },
+      where: { storeId: tenantStoreId, active: true },
     });
 
     console.log(`ℹ️ Multi-location sync: ${locationMappings.length > 0 ? "Yes" : "No"} (${locationMappings.length} mappings)`);
@@ -51,7 +52,12 @@ export async function handleInventoryWebhook(payload: any) {
 
         // Find mapping
         const mapping = await prisma.productMapping.findUnique({
-          where: { nhanhProductId },
+          where: {
+            storeId_nhanhProductId: {
+              storeId: tenantStoreId,
+              nhanhProductId,
+            },
+          },
         });
 
         if (!mapping || !mapping.shopifyProductId) {
@@ -139,6 +145,7 @@ export async function handleInventoryWebhook(payload: any) {
         // Log sync
         await prisma.productSyncLog.create({
           data: {
+            storeId: mapping.storeId,
             mappingId: mapping.id,
             action: SyncAction.INVENTORY_UPDATE,
             status: SyncStatus.SYNCED,
@@ -177,7 +184,12 @@ export async function handleInventoryWebhook(payload: any) {
         // Log error
         try {
           const mapping = await prisma.productMapping.findUnique({
-            where: { nhanhProductId: product.id.toString() },
+            where: {
+              storeId_nhanhProductId: {
+                storeId: tenantStoreId,
+                nhanhProductId: product.id.toString(),
+              },
+            },
           });
 
           if (mapping) {
@@ -192,6 +204,7 @@ export async function handleInventoryWebhook(payload: any) {
 
             await prisma.productSyncLog.create({
               data: {
+                storeId: mapping.storeId,
                 mappingId: mapping.id,
                 action: SyncAction.INVENTORY_UPDATE,
                 status: SyncStatus.FAILED,

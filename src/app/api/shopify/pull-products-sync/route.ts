@@ -291,6 +291,8 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
           where: { id: "shopify_products" },
           create: {
             id: "shopify_products",
+            storeId: "default_store",
+            type: "products",
             nextCursor: cursor ? cursor : undefined,
             totalPulled: totalFetched,
             lastPulledAt: new Date(),
@@ -358,6 +360,8 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
           where: { id: "shopify_products" },
           create: {
             id: "shopify_products",
+            storeId: "default_store",
+            type: "products",
             nextCursor: cursor ? cursor : undefined,
             totalPulled: totalFetched,
             lastPulledAt: new Date(),
@@ -442,6 +446,8 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
         where: { id: "shopify_products" },
         create: {
           id: "shopify_products",
+          storeId: "default_store",
+          type: "products",
           nextCursor: cursor || undefined,
           totalPulled: totalFetched,
           lastPulledAt: new Date(),

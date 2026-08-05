@@ -4,6 +4,7 @@ import { shopifyAPI } from "@/lib/shopify-api";
 import { nhanhAPI } from "@/lib/nhanh-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
 import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const body = await request.json();
 
     // Log webhook event
@@ -75,7 +77,12 @@ export async function POST(request: NextRequest) {
 
     // Find mapping for this customer
     const mapping = await prisma.customerMapping.findUnique({
-      where: { nhanhCustomerId: data.customerId.toString() },
+      where: {
+        storeId_nhanhCustomerId: {
+          storeId,
+          nhanhCustomerId: data.customerId.toString(),
+        },
+      },
     });
 
     if (!mapping || !mapping.shopifyCustomerId) {
@@ -161,6 +168,7 @@ export async function POST(request: NextRequest) {
         // Create sync log
         await prisma.syncLog.create({
           data: {
+            storeId: mapping.storeId,
             mappingId: mapping.id,
             action: SyncAction.WEBHOOK_SYNC,
             status: SyncStatus.SYNCED,
@@ -202,6 +210,7 @@ export async function POST(request: NextRequest) {
         // Create error log
         await prisma.syncLog.create({
           data: {
+            storeId: mapping.storeId,
             mappingId: mapping.id,
             action: SyncAction.WEBHOOK_SYNC,
             status: SyncStatus.FAILED,

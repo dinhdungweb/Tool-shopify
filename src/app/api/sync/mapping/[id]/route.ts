@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { SyncStatus } from "@prisma/client";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +14,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const { id } = await params;
-    const mapping = await prisma.customerMapping.findUnique({
-      where: { id },
+    const mapping = await prisma.customerMapping.findFirst({
+      where: { id, storeId },
       include: {
         syncLogs: {
           orderBy: { createdAt: "desc" },
@@ -59,6 +61,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const { id } = await params;
     const body = await request.json();
     const {
@@ -68,8 +71,20 @@ export async function PATCH(
       syncStatus,
     } = body;
 
+    const existing = await prisma.customerMapping.findFirst({
+      where: { id, storeId },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { success: false, error: "Mapping not found" },
+        { status: 404 }
+      );
+    }
+
     const mapping = await prisma.customerMapping.update({
-      where: { id },
+      where: { id: existing.id },
       data: {
         shopifyCustomerId,
         shopifyCustomerEmail,
@@ -81,6 +96,7 @@ export async function PATCH(
     // Create sync log
     await prisma.syncLog.create({
       data: {
+        storeId,
         mappingId: mapping.id,
         action: "MANUAL_MAPPING",
         status: mapping.syncStatus,

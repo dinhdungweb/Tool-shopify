@@ -4,6 +4,7 @@ import { shopifyAPI } from "@/lib/shopify-api";
 import { nhanhAPI } from "@/lib/nhanh-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
 import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +18,10 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: NextRequest) {
   let mappingId: string | undefined;
+  let storeId = "default_store";
 
   try {
+    ({ storeId } = await getStoreContextOrDefault(request));
     const body = await request.json();
     console.log("🔍 Sync Customer Body:", JSON.stringify(body)); // Debug log
     mappingId = body.mappingId;
@@ -40,7 +43,7 @@ export async function POST(request: NextRequest) {
       where: { id: mappingId },
     });
 
-    if (!mapping) {
+    if (!mapping || mapping.storeId !== storeId) {
       return NextResponse.json(
         {
           success: false,
@@ -129,6 +132,7 @@ export async function POST(request: NextRequest) {
     // Create sync log
     await prisma.syncLog.create({
       data: {
+        storeId,
         mappingId: mapping.id,
         action: SyncAction.MANUAL_SYNC,
         status: SyncStatus.SYNCED,
@@ -168,6 +172,7 @@ export async function POST(request: NextRequest) {
         // Create error log
         await prisma.syncLog.create({
           data: {
+            storeId,
             mappingId: mappingId,
             action: SyncAction.MANUAL_SYNC,
             status: SyncStatus.FAILED,

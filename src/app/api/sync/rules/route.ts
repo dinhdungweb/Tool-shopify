@@ -2,17 +2,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { RuleTargetType } from "@prisma/client";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
 // GET: List all rules
 export async function GET(request: NextRequest) {
     try {
+        const { storeId } = await getStoreContextOrDefault(request);
         const { searchParams } = new URL(request.url);
         const targetType = searchParams.get("targetType");
         const enabledOnly = searchParams.get("enabled") === "true";
 
-        const where: any = {};
+        const where: any = { storeId };
         if (targetType && ["PRODUCT", "CUSTOMER", "ALL"].includes(targetType)) {
             where.targetType = targetType as RuleTargetType;
         }
@@ -47,6 +49,7 @@ export async function GET(request: NextRequest) {
 // POST: Create new rule
 export async function POST(request: NextRequest) {
     try {
+        const { storeId } = await getStoreContextOrDefault(request);
         const body = await request.json();
         const {
             name,
@@ -83,6 +86,7 @@ export async function POST(request: NextRequest) {
 
         const rule = await prisma.syncRule.create({
             data: {
+                storeId,
                 name: name.trim(),
                 description: description?.trim() || null,
                 enabled,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { shopifyProductAPI } from "@/lib/shopify-product-api";
 import { nhanhProductAPI } from "@/lib/nhanh-product-api";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -9,10 +10,13 @@ export const dynamic = "force-dynamic";
  * GET /api/settings/locations
  * Get all location mappings, plus available Shopify Locations and Nhanh Depots
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
     try {
+        const { storeId } = await getStoreContextOrDefault(request);
+
         // 1. Fetch saved mappings from DB
         const mappings = await prisma.locationMapping.findMany({
+            where: { storeId },
             orderBy: { createdAt: "desc" },
         });
 
@@ -60,6 +64,7 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
     try {
+        const { storeId } = await getStoreContextOrDefault(request);
         const body = await request.json();
         const { nhanhDepotId, nhanhDepotName, shopifyLocationId, shopifyLocationName, active } = body;
 
@@ -73,7 +78,8 @@ export async function POST(request: NextRequest) {
         // Check if mapping already exists
         const existing = await prisma.locationMapping.findUnique({
             where: {
-                nhanhDepotId_shopifyLocationId: {
+                storeId_nhanhDepotId_shopifyLocationId: {
+                    storeId,
                     nhanhDepotId: nhanhDepotId.toString(),
                     shopifyLocationId: shopifyLocationId.toString(),
                 },
@@ -95,6 +101,7 @@ export async function POST(request: NextRequest) {
             // Create
             mapping = await prisma.locationMapping.create({
                 data: {
+                    storeId,
                     nhanhDepotId: nhanhDepotId.toString(),
                     nhanhDepotName,
                     shopifyLocationId: shopifyLocationId.toString(),
@@ -124,6 +131,7 @@ export async function POST(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
     try {
+        const { storeId } = await getStoreContextOrDefault(request);
         const { searchParams } = new URL(request.url);
         const id = searchParams.get("id");
 
@@ -134,9 +142,16 @@ export async function DELETE(request: NextRequest) {
             );
         }
 
-        await prisma.locationMapping.delete({
-            where: { id },
+        const deleted = await prisma.locationMapping.deleteMany({
+            where: { id, storeId },
         });
+
+        if (deleted.count === 0) {
+            return NextResponse.json(
+                { success: false, error: "Location mapping not found" },
+                { status: 404 }
+            );
+        }
 
         return NextResponse.json({
             success: true,
