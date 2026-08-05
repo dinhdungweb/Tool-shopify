@@ -239,7 +239,7 @@ export class SaleService {
 
       await prisma.$transaction(async (tx) => {
         // Serialize campaign preparation per store so two workers cannot claim overlapping variants.
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${campaign.storeId}))`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${campaign.storeId}))`;
         const variantIds = updates.map((update) => update.variantId);
         const conflicts = await tx.saleCampaign.findMany({
           where: {
