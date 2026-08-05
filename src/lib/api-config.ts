@@ -6,6 +6,7 @@
 
 import { prisma } from "./prisma";
 import { getSetting } from "./settings";
+import { decryptStoredValue } from "./encryption";
 
 // Per-store config cache
 const storeConfigCache = new Map<string, {
@@ -51,14 +52,14 @@ export async function getApiConfig(storeId?: string): Promise<StoreApiConfig> {
   if (store) {
     config = {
       shopify: {
-        storeUrl: store.shopifyStoreUrl,
-        accessToken: store.shopifyAccessToken,
+        storeUrl: decryptStoredValue(store.shopifyStoreUrl),
+        accessToken: decryptStoredValue(store.shopifyAccessToken),
       },
       nhanh: {
-        apiUrl: store.nhanhApiUrl,
-        appId: store.nhanhAppId,
-        businessId: store.nhanhBusinessId,
-        accessToken: store.nhanhAccessToken,
+        apiUrl: decryptStoredValue(store.nhanhApiUrl),
+        appId: decryptStoredValue(store.nhanhAppId),
+        businessId: decryptStoredValue(store.nhanhBusinessId),
+        accessToken: decryptStoredValue(store.nhanhAccessToken),
       },
     };
   } else {

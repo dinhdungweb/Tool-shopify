@@ -6,6 +6,7 @@
 
 import { NextRequest } from "next/server";
 import { prisma } from "./prisma";
+import { decryptStoredValue } from "./encryption";
 
 export interface StoreContext {
     storeId: string;
@@ -138,15 +139,15 @@ export async function getStoreConfig(storeId: string) {
 
     return {
         shopify: {
-            storeUrl: store.shopifyStoreUrl,
-            accessToken: store.shopifyAccessToken,
-            apiVersion: "2024-01",
+            storeUrl: decryptStoredValue(store.shopifyStoreUrl),
+            accessToken: decryptStoredValue(store.shopifyAccessToken),
+            apiVersion: process.env.SHOPIFY_API_VERSION || "2026-01",
         },
         nhanh: {
-            apiUrl: store.nhanhApiUrl,
-            appId: store.nhanhAppId,
-            businessId: store.nhanhBusinessId,
-            accessToken: store.nhanhAccessToken,
+            apiUrl: decryptStoredValue(store.nhanhApiUrl),
+            appId: decryptStoredValue(store.nhanhAppId),
+            businessId: decryptStoredValue(store.nhanhBusinessId),
+            accessToken: decryptStoredValue(store.nhanhAccessToken),
         },
     };
 }

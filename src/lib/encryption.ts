@@ -109,6 +109,19 @@ export function decrypt(encryptedText: string): string {
 }
 
 /**
+ * Decrypt a database value when it uses this module's encrypted format.
+ * Plaintext values are returned unchanged for backward compatibility.
+ */
+export function decryptStoredValue(value: string | null): string | null {
+  if (!value) {
+    return value;
+  }
+
+  const encryptedPattern = /^[0-9a-f]{128}:[0-9a-f]{32}:[0-9a-f]{32}:[0-9a-f]+$/i;
+  return encryptedPattern.test(value) ? decrypt(value) : value;
+}
+
+/**
  * Test encryption/decryption
  */
 export function testEncryption(): boolean {
