@@ -101,8 +101,20 @@ export async function getShopifyConfig(storeId?: string) {
   const config = await getApiConfig(storeId);
   return {
     ...config.shopify,
-    apiVersion: process.env.SHOPIFY_API_VERSION || "2026-01",
+    apiVersion: getShopifyApiVersion(),
   };
+}
+
+export function getShopifyApiVersion(): string {
+  const configuredVersion = process.env.SHOPIFY_API_VERSION;
+  const isValidVersion = /^\d{4}-(01|04|07|10)$/.test(configuredVersion || "");
+
+  // Collection Sources (including product status conditions) require 2026-07+.
+  if (!isValidVersion || !configuredVersion || configuredVersion < "2026-07") {
+    return "2026-07";
+  }
+
+  return configuredVersion;
 }
 
 /**

@@ -7,7 +7,7 @@ async function getGraphQLEndpoint(storeId?: string) {
   if (!config.storeUrl || !config.accessToken) {
     throw new Error("Missing Shopify credentials");
   }
-  const apiVersion = config.apiVersion || "2026-01";
+  const apiVersion = config.apiVersion || "2026-07";
   return `https://${config.storeUrl}/admin/api/${apiVersion}/graphql.json`;
 }
 
@@ -329,7 +329,7 @@ export const shopifySaleAPI = {
         throw new Error("Missing Shopify credentials");
       }
 
-      const apiVersion = config.apiVersion || "2026-01";
+      const apiVersion = config.apiVersion || "2026-07";
       const url = `https://${config.storeUrl}/admin/api/${apiVersion}/variants/${numericId}.json`;
       
       const response = await fetch(url, {
