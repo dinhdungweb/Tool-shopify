@@ -88,7 +88,16 @@ export default function SaleCampaignsTable() {
       // Reload campaigns to show updated status
       await loadCampaigns();
 
-      alert(`Campaign reverted successfully!\n\n${result.revertedCount} variants restored.`);
+      if (result.failedCount > 0) {
+        alert(
+          `Campaign partially reverted.\n\n` +
+          `Restored: ${result.revertedCount} variants\n` +
+          `Still pending: ${result.failedCount} variants\n\n` +
+          result.errors.slice(0, 5).join("\n")
+        );
+      } else {
+        alert(`Campaign reverted successfully!\n\n${result.revertedCount} variants restored.`);
+      }
     } catch (error: any) {
       console.error("Error reverting campaign:", error);
       alert("Failed to revert campaign: " + error.message);

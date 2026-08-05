@@ -542,6 +542,7 @@ model PriceChange {
   originalCompareAtPrice Decimal?     @db.Decimal(10, 2)
   campaign               SaleCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
+  @@unique([campaignId, variantId])
   @@index([campaignId])
   @@index([productId])
   @@index([variantId])

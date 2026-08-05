@@ -1,153 +1,120 @@
-// Sale Campaign Service
 import { prisma } from "@/lib/prisma";
-import { shopifySaleAPI } from "@/lib/shopify-sale-api";
 import {
-  TargetType,
+  shopifySaleAPI,
+  VariantPriceUpdate,
+  VariantPriceUpdateResult,
+} from "@/lib/shopify-sale-api";
+import {
   DiscountType,
-  ShopifyProduct,
   PreviewProduct,
   PreviewVariant,
+  ShopifyProduct,
+  TargetType,
 } from "@/types/sale";
 
+type CampaignStatus = "DRAFT" | "SCHEDULED" | "APPLYING" | "ACTIVE" | "REVERTING" | "COMPLETED" | "CANCELLED" | "FAILED";
+
+function moneyEquals(left: number | null, right: number | null) {
+  if (left === null || right === null) return left === right;
+  return Math.abs(left - right) < 0.005;
+}
+
+function nullableMoney(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export class SaleService {
-  /**
-   * Get affected products based on campaign target
-   */
   async getAffectedProducts(
     targetType: TargetType,
     targetIds: string[],
-    productType?: string
+    productType?: string,
+    storeId = "default_store"
   ): Promise<ShopifyProduct[]> {
-    let products: ShopifyProduct[] = [];
-
-    console.log("Getting affected products:", { targetType, targetIds, productType });
-
     switch (targetType) {
       case "PRODUCT":
-        if (targetIds.length > 0) {
-          console.log("Fetching products by IDs:", targetIds);
-          products = await shopifySaleAPI.getProductsByIds(targetIds);
-          console.log("Fetched products count:", products.length);
-        }
-        break;
-
+        return targetIds.length > 0
+          ? shopifySaleAPI.getProductsByIds(targetIds, storeId)
+          : [];
       case "COLLECTION":
-        if (targetIds.length > 0) {
-          console.log("Fetching products by collection:", targetIds[0]);
-          products = await shopifySaleAPI.getProductsByCollection(targetIds[0]);
-          console.log("Fetched products count:", products.length);
-        }
-        break;
-
+        return targetIds.length > 0
+          ? shopifySaleAPI.getProductsByCollection(targetIds[0], storeId)
+          : [];
       case "PRODUCT_TYPE":
-        if (productType) {
-          console.log("Fetching products by type:", productType);
-          products = await shopifySaleAPI.getProductsByType(productType);
-          console.log("Fetched products count:", products.length);
-        }
-        break;
-
+        return productType
+          ? shopifySaleAPI.getProductsByType(productType, storeId)
+          : [];
       case "ALL":
-        console.log("Fetching all products");
-        products = await shopifySaleAPI.getAllProducts();
-        console.log("Fetched products count:", products.length);
-        break;
-
+        return shopifySaleAPI.getAllProducts(undefined, storeId);
       default:
         throw new Error(`Unknown target type: ${targetType}`);
     }
-
-    console.log("Total affected products:", products.length);
-    return products;
   }
 
-  /**
-   * Calculate sale price
-   */
   calculateSalePrice(
     originalPrice: number,
     discountType: DiscountType,
     discountValue: number
   ): number {
-    let salePrice: number;
-
-    if (discountType === "PERCENTAGE") {
-      salePrice = originalPrice * (1 - discountValue / 100);
-    } else {
-      // FIXED_AMOUNT
-      salePrice = originalPrice - discountValue;
-    }
-
-    // Ensure price is not negative
+    const salePrice = discountType === "PERCENTAGE"
+      ? originalPrice * (1 - discountValue / 100)
+      : originalPrice - discountValue;
     return Math.max(0, Math.round(salePrice * 100) / 100);
   }
 
-  /**
-   * Preview campaign - show what will be affected
-   */
-  async previewCampaign(campaignId: string): Promise<{
+  private ensureStore(campaignStoreId: string, expectedStoreId?: string) {
+    if (expectedStoreId && campaignStoreId !== expectedStoreId) {
+      throw new Error("Campaign does not belong to the active store");
+    }
+  }
+
+  async previewCampaign(campaignId: string, expectedStoreId?: string): Promise<{
     totalProducts: number;
     totalVariants: number;
     estimatedSavings: number;
     products: PreviewProduct[];
   }> {
-    const campaign = await prisma.saleCampaign.findUnique({
-      where: { id: campaignId },
-    });
-
-    if (!campaign) {
-      throw new Error("Campaign not found");
-    }
+    const campaign = await prisma.saleCampaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) throw new Error("Campaign not found");
+    this.ensureStore(campaign.storeId, expectedStoreId);
 
     const products = await this.getAffectedProducts(
       campaign.targetType as TargetType,
       campaign.targetIds,
-      campaign.productType || undefined
+      campaign.productType || undefined,
+      campaign.storeId
     );
 
     let totalVariants = 0;
     let estimatedSavings = 0;
-
     const previewProducts: PreviewProduct[] = products.map((product) => {
-      const previewVariants: PreviewVariant[] = product.variants.map(
-        (variant) => {
-          const currentPrice = parseFloat(variant.price);
-          const currentCompareAtPrice = variant.compareAtPrice 
-            ? parseFloat(variant.compareAtPrice) 
-            : null;
-          
-          // Use same logic as apply: compare_at_price if exists, otherwise current price
-          const basePrice = currentCompareAtPrice || currentPrice;
-          
-          const salePrice = this.calculateSalePrice(
-            basePrice,
-            campaign.discountType as DiscountType,
-            Number(campaign.discountValue)
-          );
-          const savings = basePrice - salePrice;
-          const savingsPercentage =
-            basePrice > 0 ? (savings / basePrice) * 100 : 0;
-
-          totalVariants++;
-          estimatedSavings += savings;
-
-          return {
-            id: variant.id,
-            title: variant.title,
-            sku: variant.sku,
-            originalPrice: basePrice, // Show base price as original
-            salePrice,
-            savings,
-            savingsPercentage: Math.round(savingsPercentage * 100) / 100,
-          };
-        }
-      );
-
-      return {
-        id: product.id,
-        title: product.title,
-        variants: previewVariants,
-      };
+      const variants: PreviewVariant[] = product.variants.map((variant) => {
+        const currentPrice = Number(variant.price);
+        const currentCompareAtPrice = nullableMoney(variant.compareAtPrice);
+        // Deliberately preserve the existing business rule: discount from compare-at price.
+        const basePrice = currentCompareAtPrice || currentPrice;
+        const salePrice = this.calculateSalePrice(
+          basePrice,
+          campaign.discountType as DiscountType,
+          Number(campaign.discountValue)
+        );
+        const savings = basePrice - salePrice;
+        totalVariants++;
+        estimatedSavings += savings;
+        return {
+          id: variant.id,
+          title: variant.title,
+          sku: variant.sku,
+          originalPrice: basePrice,
+          salePrice,
+          savings,
+          savingsPercentage: basePrice > 0
+            ? Math.round((savings / basePrice) * 10_000) / 100
+            : 0,
+        };
+      });
+      return { id: product.id, title: product.title, variants };
     });
 
     return {
@@ -158,193 +125,200 @@ export class SaleService {
     };
   }
 
-  /**
-   * Apply campaign - update prices on Shopify
-   */
-  async applyCampaign(campaignId: string): Promise<{
+  private async saveApplyProgress(campaignId: string, batch: VariantPriceUpdateResult) {
+    if (batch.successfulVariantIds.length > 0) {
+      await prisma.priceChange.updateMany({
+        where: { campaignId, variantId: { in: batch.successfulVariantIds } },
+        data: { applied: true, appliedAt: new Date(), error: null },
+      });
+    }
+    for (const error of batch.errors) {
+      await prisma.priceChange.updateMany({
+        where: { campaignId, variantId: error.variantId },
+        data: { error: error.error },
+      });
+    }
+  }
+
+  private async saveRevertProgress(campaignId: string, batch: VariantPriceUpdateResult) {
+    if (batch.successfulVariantIds.length > 0) {
+      await prisma.priceChange.updateMany({
+        where: { campaignId, variantId: { in: batch.successfulVariantIds } },
+        data: { reverted: true, revertedAt: new Date(), error: null },
+      });
+    }
+    for (const error of batch.errors) {
+      await prisma.priceChange.updateMany({
+        where: { campaignId, variantId: error.variantId },
+        data: { error: `Revert failed: ${error.error}` },
+      });
+    }
+  }
+
+  async applyCampaign(campaignId: string, expectedStoreId?: string): Promise<{
     success: boolean;
     affectedCount: number;
     failedCount: number;
     errors: string[];
   }> {
-    const campaign = await prisma.saleCampaign.findUnique({
-      where: { id: campaignId },
+    const campaign = await prisma.saleCampaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) throw new Error("Campaign not found");
+    this.ensureStore(campaign.storeId, expectedStoreId);
+
+    if (!(["DRAFT", "SCHEDULED"] as CampaignStatus[]).includes(campaign.status as CampaignStatus)) {
+      throw new Error(`Campaign cannot be applied from status ${campaign.status}`);
+    }
+
+    const claimed = await prisma.saleCampaign.updateMany({
+      where: { id: campaign.id, status: campaign.status },
+      data: { status: "APPLYING", errorMessage: null },
     });
+    if (claimed.count !== 1) throw new Error("Campaign is already being processed");
 
-    if (!campaign) {
-      throw new Error("Campaign not found");
+    try {
+      const products = await this.getAffectedProducts(
+        campaign.targetType as TargetType,
+        campaign.targetIds,
+        campaign.productType || undefined,
+        campaign.storeId
+      );
+      const updates: VariantPriceUpdate[] = [];
+      const changes: Array<{
+        campaignId: string;
+        productId: string;
+        variantId: string;
+        productTitle: string;
+        variantTitle: string;
+        sku?: string;
+        originalPrice: number;
+        originalCompareAtPrice?: number | null;
+        salePrice: number;
+        currentPrice: number;
+      }> = [];
+
+      for (const product of products) {
+        for (const variant of product.variants) {
+          const currentPrice = Number(variant.price);
+          const currentCompareAtPrice = nullableMoney(variant.compareAtPrice);
+          const basePrice = currentCompareAtPrice || currentPrice;
+          const salePrice = this.calculateSalePrice(
+            basePrice,
+            campaign.discountType as DiscountType,
+            Number(campaign.discountValue)
+          );
+          if (moneyEquals(salePrice, currentPrice)) continue;
+
+          updates.push({
+            productId: product.id,
+            variantId: variant.id,
+            price: salePrice,
+            compareAtPrice: basePrice,
+          });
+          changes.push({
+            campaignId: campaign.id,
+            productId: product.id,
+            variantId: variant.id,
+            productTitle: product.title,
+            variantTitle: variant.title,
+            sku: variant.sku,
+            originalPrice: basePrice,
+            originalCompareAtPrice: currentCompareAtPrice,
+            salePrice,
+            currentPrice,
+          });
+        }
+      }
+
+      if (updates.length === 0) {
+        await prisma.saleCampaign.update({
+          where: { id: campaign.id },
+          data: { status: "FAILED", errorMessage: "No variant prices needed updating" },
+        });
+        return { success: false, affectedCount: 0, failedCount: 0, errors: [] };
+      }
+
+      await prisma.$transaction(async (tx) => {
+        // Serialize campaign preparation per store so two workers cannot claim overlapping variants.
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${campaign.storeId}))`;
+        const variantIds = updates.map((update) => update.variantId);
+        const conflicts = await tx.saleCampaign.findMany({
+          where: {
+            storeId: campaign.storeId,
+            id: { not: campaign.id },
+            OR: [
+              {
+                status: "ACTIVE",
+                priceChanges: { some: { variantId: { in: variantIds }, applied: true, reverted: false } },
+              },
+              {
+                status: "APPLYING",
+                priceChanges: { some: { variantId: { in: variantIds } } },
+              },
+              {
+                status: "REVERTING",
+                priceChanges: { some: { variantId: { in: variantIds }, applied: true, reverted: false } },
+              },
+            ],
+          },
+          select: { id: true, name: true },
+        });
+        if (conflicts.length > 0) {
+          throw new Error(`Products overlap with campaign(s): ${conflicts.map((item) => item.name).join(", ")}`);
+        }
+        await tx.priceChange.createMany({ data: changes, skipDuplicates: true });
+      });
+
+      const result = await shopifySaleAPI.bulkUpdateVariantPrices(
+        updates,
+        campaign.storeId,
+        (batch) => this.saveApplyProgress(campaign.id, batch)
+      );
+      await prisma.saleCampaign.update({
+        where: { id: campaign.id },
+        data: {
+          status: result.successful > 0 ? "ACTIVE" : "FAILED",
+          appliedAt: result.successful > 0 ? new Date() : null,
+          affectedCount: result.successful,
+          errorMessage: result.failed > 0 ? `${result.failed} variants failed to update` : null,
+        },
+      });
+      return {
+        success: result.successful > 0,
+        affectedCount: result.successful,
+        failedCount: result.failed,
+        errors: result.errors.map((error) => `${error.variantId}: ${error.error}`),
+      };
+    } catch (error: any) {
+      const applied = await prisma.priceChange.count({
+        where: { campaignId: campaign.id, applied: true, reverted: false },
+      });
+      await prisma.saleCampaign.updateMany({
+        where: { id: campaign.id, status: "APPLYING" },
+        data: {
+          status: applied > 0 ? "ACTIVE" : "FAILED",
+          affectedCount: applied,
+          errorMessage: error.message || "Campaign apply failed",
+        },
+      });
+      throw error;
     }
+  }
 
-    // Validate campaign status
-    if (campaign.status === "ACTIVE") {
-      throw new Error("Campaign is already active");
-    }
-
-    if (campaign.status === "COMPLETED") {
-      throw new Error("Campaign is already completed");
-    }
-
-    if (campaign.status === "CANCELLED") {
-      throw new Error("Campaign is cancelled");
-    }
-
-    // Get affected products
-    const products = await this.getAffectedProducts(
-      campaign.targetType as TargetType,
-      campaign.targetIds,
-      campaign.productType || undefined
-    );
-
-    console.log(`Applying campaign to ${products.length} products...`);
-
-    const priceUpdates: Array<{
-      variantId: string;
-      price: number;
-      compareAtPrice: number;
-    }> = [];
-
-    const priceChangeRecords: Array<{
-      campaignId: string;
-      productId: string;
-      variantId: string;
-      productTitle: string;
-      variantTitle: string;
-      sku?: string;
-      originalPrice: number;
-      originalCompareAtPrice?: number | null;
-      salePrice: number;
-      currentPrice: number;
-    }> = [];
-
-    // Prepare all updates
+  private async getCurrentVariantMap(productIds: string[], storeId: string) {
+    const products = await shopifySaleAPI.getProductsByIds(productIds, storeId);
+    const variants = new Map<string, { price: number; compareAtPrice: number | null }>();
     for (const product of products) {
       for (const variant of product.variants) {
-        const currentPrice = parseFloat(variant.price);
-        const currentCompareAtPrice = variant.compareAtPrice 
-          ? parseFloat(variant.compareAtPrice) 
-          : null;
-        
-        // Determine the base price for discount calculation:
-        // - If compare_at_price exists, use it (it's the original price)
-        // - Otherwise, use current price
-        const basePrice = currentCompareAtPrice || currentPrice;
-        
-        // Calculate new sale price based on the base price
-        const salePrice = this.calculateSalePrice(
-          basePrice,
-          campaign.discountType as DiscountType,
-          Number(campaign.discountValue)
-        );
-
-        // Skip if sale price is same as current price
-        if (salePrice === currentPrice) {
-          continue;
-        }
-
-        // When applying sale:
-        // - Set price to salePrice (new discounted price)
-        // - Set compareAtPrice to basePrice (original price to show strikethrough)
-        priceUpdates.push({
-          variantId: variant.id,
-          price: salePrice,
-          compareAtPrice: basePrice,
-        });
-
-        priceChangeRecords.push({
-          campaignId: campaign.id,
-          productId: product.id,
-          variantId: variant.id,
-          productTitle: product.title,
-          variantTitle: variant.title,
-          sku: variant.sku,
-          originalPrice: basePrice, // Store base price for display (this is the "original" price shown to users)
-          originalCompareAtPrice: currentCompareAtPrice, // Store original compare_at_price to restore later
-          salePrice,
-          currentPrice, // Store current price to restore later
+        variants.set(variant.id, {
+          price: Number(variant.price),
+          compareAtPrice: nullableMoney(variant.compareAtPrice),
         });
       }
     }
-
-    console.log(`Prepared ${priceUpdates.length} price updates`);
-
-    // Update campaign status to APPLYING
-    await prisma.saleCampaign.update({
-      where: { id: campaign.id },
-      data: { status: "APPLYING" },
-    });
-
-    // Create price change records first
-    await prisma.priceChange.createMany({
-      data: priceChangeRecords,
-    });
-
-    // Apply updates to Shopify
-    const result = await shopifySaleAPI.bulkUpdateVariantPrices(priceUpdates);
-
-    console.log(
-      `Applied: ${result.successful} successful, ${result.failed} failed`
-    );
-
-    // Update price change records with results
-    const successfulVariantIds = priceUpdates
-      .filter(
-        (update) =>
-          !result.errors.find((e) => e.variantId === update.variantId)
-      )
-      .map((u) => u.variantId);
-
-    if (successfulVariantIds.length > 0) {
-      await prisma.priceChange.updateMany({
-        where: {
-          campaignId: campaign.id,
-          variantId: { in: successfulVariantIds },
-        },
-        data: {
-          applied: true,
-          appliedAt: new Date(),
-        },
-      });
-    }
-
-    // Update failed records
-    for (const error of result.errors) {
-      await prisma.priceChange.updateMany({
-        where: {
-          campaignId: campaign.id,
-          variantId: error.variantId,
-        },
-        data: {
-          error: error.error,
-        },
-      });
-    }
-
-    // Update campaign status
-    await prisma.saleCampaign.update({
-      where: { id: campaign.id },
-      data: {
-        status: result.successful > 0 ? "ACTIVE" : "FAILED",
-        appliedAt: new Date(),
-        affectedCount: result.successful,
-        errorMessage:
-          result.failed > 0
-            ? `${result.failed} variants failed to update`
-            : null,
-      },
-    });
-
-    return {
-      success: result.successful > 0,
-      affectedCount: result.successful,
-      failedCount: result.failed,
-      errors: result.errors.map((e) => `${e.variantId}: ${e.error}`),
-    };
+    return variants;
   }
 
-  /**
-   * Revert campaign - restore original prices
-   */
-  async revertCampaign(campaignId: string): Promise<{
+  async revertCampaign(campaignId: string, expectedStoreId?: string): Promise<{
     success: boolean;
     revertedCount: number;
     failedCount: number;
@@ -352,145 +326,208 @@ export class SaleService {
   }> {
     const campaign = await prisma.saleCampaign.findUnique({
       where: { id: campaignId },
-      include: {
-        priceChanges: {
-          where: {
-            applied: true,
-            reverted: false,
-          },
-        },
-      },
+      include: { priceChanges: { where: { applied: true, reverted: false } } },
     });
+    if (!campaign) throw new Error("Campaign not found");
+    this.ensureStore(campaign.storeId, expectedStoreId);
+    if (campaign.status !== "ACTIVE") throw new Error("Campaign is not active");
+    if (campaign.priceChanges.length === 0) throw new Error("No price changes to revert");
 
-    if (!campaign) {
-      throw new Error("Campaign not found");
-    }
-
-    if (campaign.status !== "ACTIVE") {
-      throw new Error("Campaign is not active");
-    }
-
-    if (campaign.priceChanges.length === 0) {
-      throw new Error("No price changes to revert");
-    }
-
-    console.log(`Reverting ${campaign.priceChanges.length} price changes...`);
-
-    // Update campaign status to REVERTING
-    await prisma.saleCampaign.update({
-      where: { id: campaign.id },
-      data: { status: "REVERTING" },
+    const claimed = await prisma.saleCampaign.updateMany({
+      where: { id: campaign.id, status: "ACTIVE" },
+      data: { status: "REVERTING", errorMessage: null },
     });
+    if (claimed.count !== 1) throw new Error("Campaign is already being processed");
 
-    // When reverting:
-    // - Restore price to currentPrice (the price before campaign was applied)
-    // - Restore compareAtPrice to originalCompareAtPrice (or null if didn't exist)
-    const priceUpdates = campaign.priceChanges.map((change) => ({
-      variantId: change.variantId,
-      price: Number(change.currentPrice), // Restore to price before campaign
-      compareAtPrice: change.originalCompareAtPrice 
-        ? Number(change.originalCompareAtPrice) 
-        : null,
-    }));
+    try {
+      const currentVariants = await this.getCurrentVariantMap(
+        [...new Set(campaign.priceChanges.map((change) => change.productId))],
+        campaign.storeId
+      );
+      const updates: VariantPriceUpdate[] = [];
+      const errors: Array<{ variantId: string; error: string }> = [];
+      let alreadyRestored = 0;
 
-    // Apply updates to Shopify
-    const result = await shopifySaleAPI.bulkUpdateVariantPrices(priceUpdates);
+      for (const change of campaign.priceChanges) {
+        const current = currentVariants.get(change.variantId);
+        if (!current) {
+          errors.push({ variantId: change.variantId, error: "Variant no longer exists on Shopify" });
+          continue;
+        }
+        const restoredPrice = Number(change.currentPrice);
+        const restoredCompare = nullableMoney(change.originalCompareAtPrice?.toString());
+        if (moneyEquals(current.price, restoredPrice) && moneyEquals(current.compareAtPrice, restoredCompare)) {
+          await prisma.priceChange.update({
+            where: { id: change.id },
+            data: { reverted: true, revertedAt: new Date(), error: null },
+          });
+          alreadyRestored++;
+          continue;
+        }
 
-    console.log(
-      `Reverted: ${result.successful} successful, ${result.failed} failed`
-    );
+        const expectedSalePrice = Number(change.salePrice);
+        const expectedSaleCompare = Number(change.originalPrice);
+        if (!moneyEquals(current.price, expectedSalePrice) || !moneyEquals(current.compareAtPrice, expectedSaleCompare)) {
+          errors.push({
+            variantId: change.variantId,
+            error: "Shopify price was changed outside this campaign; automatic restore was skipped",
+          });
+          continue;
+        }
 
-    // Update price change records
-    const successfulVariantIds = priceUpdates
-      .filter(
-        (update) =>
-          !result.errors.find((e) => e.variantId === update.variantId)
-      )
-      .map((u) => u.variantId);
+        updates.push({
+          productId: change.productId,
+          variantId: change.variantId,
+          price: restoredPrice,
+          compareAtPrice: restoredCompare,
+        });
+      }
 
-    if (successfulVariantIds.length > 0) {
-      await prisma.priceChange.updateMany({
-        where: {
-          campaignId: campaign.id,
-          variantId: { in: successfulVariantIds },
-        },
+      for (const error of errors) {
+        await prisma.priceChange.updateMany({
+          where: { campaignId: campaign.id, variantId: error.variantId },
+          data: { error: `Revert failed: ${error.error}` },
+        });
+      }
+
+      const result = await shopifySaleAPI.bulkUpdateVariantPrices(
+        updates,
+        campaign.storeId,
+        (batch) => this.saveRevertProgress(campaign.id, batch)
+      );
+      const allErrors = [...errors, ...result.errors];
+      const remaining = await prisma.priceChange.count({
+        where: { campaignId: campaign.id, applied: true, reverted: false },
+      });
+      await prisma.saleCampaign.update({
+        where: { id: campaign.id },
         data: {
-          reverted: true,
-          revertedAt: new Date(),
+          status: remaining === 0 ? "COMPLETED" : "ACTIVE",
+          revertedAt: remaining === 0 ? new Date() : null,
+          errorMessage: remaining > 0 ? `${remaining} variants still need to be restored` : null,
         },
       });
-    }
 
-    // Update failed records
-    for (const error of result.errors) {
-      await prisma.priceChange.updateMany({
-        where: {
-          campaignId: campaign.id,
-          variantId: error.variantId,
-        },
-        data: {
-          error: `Revert failed: ${error.error}`,
-        },
+      const revertedCount = alreadyRestored + result.successful;
+      return {
+        success: revertedCount > 0,
+        revertedCount,
+        failedCount: allErrors.length,
+        errors: allErrors.map((error) => `${error.variantId}: ${error.error}`),
+      };
+    } catch (error: any) {
+      await prisma.saleCampaign.updateMany({
+        where: { id: campaign.id, status: "REVERTING" },
+        data: { status: "ACTIVE", errorMessage: error.message || "Campaign revert failed" },
       });
+      throw error;
     }
-
-    // Update campaign status
-    await prisma.saleCampaign.update({
-      where: { id: campaign.id },
-      data: {
-        status: "COMPLETED",
-        revertedAt: new Date(),
-      },
-    });
-
-    return {
-      success: result.successful > 0,
-      revertedCount: result.successful,
-      failedCount: result.failed,
-      errors: result.errors.map((e) => `${e.variantId}: ${e.error}`),
-    };
   }
 
-  /**
-   * Check for conflicting campaigns
-   */
   async checkConflicts(
     targetType: TargetType,
     targetIds: string[],
     productType?: string,
-    excludeCampaignId?: string
+    excludeCampaignId?: string,
+    storeId = "default_store"
   ): Promise<{ hasConflict: boolean; conflictingCampaigns: any[] }> {
-    // Get active campaigns
-    const activeCampaigns = await prisma.saleCampaign.findMany({
+    const products = await this.getAffectedProducts(targetType, targetIds, productType, storeId);
+    const variantIds = products.flatMap((product) => product.variants.map((variant) => variant.id));
+    if (variantIds.length === 0) return { hasConflict: false, conflictingCampaigns: [] };
+
+    const conflicts = await prisma.saleCampaign.findMany({
       where: {
-        status: "ACTIVE",
+        storeId,
         id: excludeCampaignId ? { not: excludeCampaignId } : undefined,
+        status: { in: ["ACTIVE", "APPLYING", "REVERTING"] },
+        priceChanges: {
+          some: { variantId: { in: variantIds }, applied: true, reverted: false },
+        },
+      },
+      select: { id: true, name: true, status: true },
+    });
+    return { hasConflict: conflicts.length > 0, conflictingCampaigns: conflicts };
+  }
+
+  async recoverCampaign(campaignId: string) {
+    const campaign = await prisma.saleCampaign.findUnique({
+      where: { id: campaignId },
+      include: { priceChanges: true },
+    });
+    if (!campaign || !["APPLYING", "REVERTING"].includes(campaign.status)) return null;
+
+    const pending = campaign.status === "APPLYING"
+      ? campaign.priceChanges.filter((change) => !change.applied)
+      : campaign.priceChanges.filter((change) => change.applied && !change.reverted);
+    const currentVariants = await this.getCurrentVariantMap(
+      [...new Set(pending.map((change) => change.productId))],
+      campaign.storeId
+    );
+
+    for (const change of pending) {
+      const current = currentVariants.get(change.variantId);
+      if (!current) continue;
+      if (campaign.status === "APPLYING") {
+        if (
+          moneyEquals(current.price, Number(change.salePrice)) &&
+          moneyEquals(current.compareAtPrice, Number(change.originalPrice))
+        ) {
+          await prisma.priceChange.update({
+            where: { id: change.id },
+            data: { applied: true, appliedAt: new Date(), error: null },
+          });
+        }
+      } else if (
+        moneyEquals(current.price, Number(change.currentPrice)) &&
+        moneyEquals(current.compareAtPrice, nullableMoney(change.originalCompareAtPrice?.toString()))
+      ) {
+        await prisma.priceChange.update({
+          where: { id: change.id },
+          data: { reverted: true, revertedAt: new Date(), error: null },
+        });
+      }
+    }
+
+    const remaining = await prisma.priceChange.count({
+      where: campaign.status === "APPLYING"
+        ? { campaignId, applied: false }
+        : { campaignId, applied: true, reverted: false },
+    });
+    const applied = await prisma.priceChange.count({
+      where: { campaignId, applied: true, reverted: false },
+    });
+    const newStatus = campaign.status === "APPLYING"
+      ? (applied > 0 ? "ACTIVE" : "FAILED")
+      : (remaining === 0 ? "COMPLETED" : "ACTIVE");
+
+    await prisma.saleCampaign.update({
+      where: { id: campaign.id },
+      data: {
+        status: newStatus,
+        affectedCount: campaign.status === "APPLYING" ? applied : campaign.affectedCount,
+        revertedAt: newStatus === "COMPLETED" ? new Date() : campaign.revertedAt,
+        errorMessage: remaining > 0
+          ? `Recovered after restart; ${remaining} variants remain unfinished`
+          : null,
       },
     });
+    return { id: campaign.id, name: campaign.name, oldStatus: campaign.status, newStatus, remaining };
+  }
 
-    const conflictingCampaigns = activeCampaigns.filter((campaign) => {
-      // Check if targets overlap
-      if (targetType === "ALL" || campaign.targetType === "ALL") {
-        return true;
-      }
-
-      if (targetType === campaign.targetType) {
-        if (targetType === "PRODUCT_TYPE") {
-          return productType === campaign.productType;
-        }
-
-        if (targetType === "PRODUCT" || targetType === "COLLECTION") {
-          return targetIds.some((id) => campaign.targetIds.includes(id));
-        }
-      }
-
-      return false;
+  async recoverStuckCampaigns(storeId?: string) {
+    const campaigns = await prisma.saleCampaign.findMany({
+      where: {
+        storeId,
+        status: { in: ["APPLYING", "REVERTING"] },
+      },
+      select: { id: true },
     });
-
-    return {
-      hasConflict: conflictingCampaigns.length > 0,
-      conflictingCampaigns,
-    };
+    const recovered = [];
+    for (const campaign of campaigns) {
+      const result = await this.recoverCampaign(campaign.id);
+      if (result) recovered.push(result);
+    }
+    return recovered;
   }
 }
 

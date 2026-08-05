@@ -1,6 +1,7 @@
 // API Route: Preview Campaign
 import { NextRequest, NextResponse } from "next/server";
 import { saleService } from "@/lib/sale-service";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const preview = await saleService.previewCampaign(id);
+    const { storeId } = await getStoreContextOrDefault(request);
+    const preview = await saleService.previewCampaign(id, storeId);
 
     return NextResponse.json({
       success: true,

@@ -1,6 +1,7 @@
 // API Route: Apply Campaign
 import { NextRequest, NextResponse } from "next/server";
 import { saleService } from "@/lib/sale-service";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +15,10 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
+    const { storeId } = await getStoreContextOrDefault(request);
     console.log(`Applying campaign ${id}...`);
 
-    const result = await saleService.applyCampaign(id);
+    const result = await saleService.applyCampaign(id, storeId);
 
     if (!result.success) {
       return NextResponse.json(

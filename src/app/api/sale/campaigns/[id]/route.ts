@@ -1,6 +1,7 @@
 // API Route: Single Campaign Operations
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +15,9 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const campaign = await prisma.saleCampaign.findUnique({
-      where: { id },
+    const { storeId } = await getStoreContextOrDefault(request);
+    const campaign = await prisma.saleCampaign.findFirst({
+      where: { id, storeId },
       include: {
         priceChanges: {
           orderBy: { createdAt: "desc" },
@@ -63,11 +65,12 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
+    const { storeId } = await getStoreContextOrDefault(request);
     const body = await request.json();
 
     // Check if campaign exists and is editable
-    const existingCampaign = await prisma.saleCampaign.findUnique({
-      where: { id },
+    const existingCampaign = await prisma.saleCampaign.findFirst({
+      where: { id, storeId },
     });
 
     if (!existingCampaign) {
@@ -151,8 +154,9 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const campaign = await prisma.saleCampaign.findUnique({
-      where: { id },
+    const { storeId } = await getStoreContextOrDefault(request);
+    const campaign = await prisma.saleCampaign.findFirst({
+      where: { id, storeId },
     });
 
     if (!campaign) {

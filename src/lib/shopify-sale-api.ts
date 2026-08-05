@@ -1,468 +1,396 @@
 // Shopify Sale API Helper
-import { ShopifyProduct, ShopifyVariant, ShopifyCollection } from "@/types/sale";
+import { ShopifyCollection, ShopifyProduct, ShopifyVariant } from "@/types/sale";
 import { getShopifyConfig } from "./api-config";
 
-async function getGraphQLEndpoint(storeId?: string) {
-  const config = await getShopifyConfig(storeId);
-  if (!config.storeUrl || !config.accessToken) {
-    throw new Error("Missing Shopify credentials");
-  }
-  const apiVersion = config.apiVersion || "2026-07";
-  return `https://${config.storeUrl}/admin/api/${apiVersion}/graphql.json`;
+const MAX_RETRIES = 4;
+const REQUEST_TIMEOUT_MS = 30_000;
+
+export interface VariantPriceUpdate {
+  productId: string;
+  variantId: string;
+  price: number;
+  compareAtPrice?: number | null;
+}
+
+export interface VariantPriceUpdateResult {
+  successful: number;
+  failed: number;
+  successfulVariantIds: string[];
+  errors: Array<{ variantId: string; error: string }>;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableGraphQLError(errors: any[]) {
+  return errors.some(
+    (error) =>
+      error?.extensions?.code === "THROTTLED" ||
+      /throttl|rate limit|temporar|timeout/i.test(error?.message || "")
+  );
 }
 
 async function shopifyGraphQL(query: string, variables?: any, storeId?: string) {
   const config = await getShopifyConfig(storeId);
-  const GRAPHQL_ENDPOINT = await getGraphQLEndpoint(storeId);
-  
-  const response = await fetch(GRAPHQL_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": config.accessToken!,
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Shopify API error: ${response.statusText}`);
+  if (!config.storeUrl || !config.accessToken) {
+    throw new Error(`Missing Shopify credentials for store ${storeId || "default_store"}`);
   }
 
-  const data = await response.json();
+  const endpoint = `https://${config.storeUrl}/admin/api/${config.apiVersion || "2026-07"}/graphql.json`;
+  let lastError: Error | null = null;
 
-  if (data.errors) {
-    throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`);
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": config.accessToken,
+        },
+        body: JSON.stringify({ query, variables }),
+        signal: controller.signal,
+      });
+
+      const responseBody = await response.text();
+      let payload: any;
+      try {
+        payload = responseBody ? JSON.parse(responseBody) : {};
+      } catch {
+        payload = {};
+      }
+
+      if (!response.ok) {
+        const message = payload?.errors
+          ? JSON.stringify(payload.errors)
+          : responseBody || `${response.status} ${response.statusText}`;
+        const retryable = response.status === 429 || response.status >= 500;
+        if (!retryable || attempt === MAX_RETRIES - 1) {
+          throw new Error(`Shopify API error ${response.status}: ${message}`);
+        }
+
+        const retryAfter = Number(response.headers.get("retry-after"));
+        await sleep(Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : 500 * 2 ** attempt);
+        continue;
+      }
+
+      if (payload.errors?.length) {
+        if (isRetryableGraphQLError(payload.errors) && attempt < MAX_RETRIES - 1) {
+          await sleep(500 * 2 ** attempt);
+          continue;
+        }
+        throw new Error(`GraphQL errors: ${JSON.stringify(payload.errors)}`);
+      }
+
+      return payload.data;
+    } catch (error: any) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const retryable = error?.name === "AbortError" || /fetch failed|network|timeout/i.test(error?.message || "");
+      if (!retryable || attempt === MAX_RETRIES - 1) throw lastError;
+      await sleep(500 * 2 ** attempt);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
-  return data.data;
+  throw lastError || new Error("Shopify GraphQL request failed");
+}
+
+function mapVariant(node: any): ShopifyVariant {
+  return {
+    id: node.id,
+    title: node.title,
+    sku: node.sku,
+    price: node.price,
+    compareAtPrice: node.compareAtPrice,
+  };
+}
+
+async function loadAllVariants(
+  productId: string,
+  initialConnection: any,
+  storeId?: string
+): Promise<ShopifyVariant[]> {
+  const variants = initialConnection.edges.map((edge: any) => mapVariant(edge.node));
+  let hasNextPage = initialConnection.pageInfo.hasNextPage;
+  let after = initialConnection.pageInfo.endCursor as string | null;
+
+  const query = `
+    query getProductVariants($id: ID!, $first: Int!, $after: String) {
+      product(id: $id) {
+        variants(first: $first, after: $after) {
+          edges { node { id title sku price compareAtPrice } }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }
+  `;
+
+  while (hasNextPage) {
+    const data = await shopifyGraphQL(query, { id: productId, first: 250, after }, storeId);
+    if (!data.product) throw new Error(`Product not found while loading variants: ${productId}`);
+    const connection = data.product.variants;
+    variants.push(...connection.edges.map((edge: any) => mapVariant(edge.node)));
+    hasNextPage = connection.pageInfo.hasNextPage;
+    after = connection.pageInfo.endCursor;
+  }
+
+  return variants;
+}
+
+async function mapProducts(edges: any[], storeId?: string): Promise<ShopifyProduct[]> {
+  return Promise.all(
+    edges.map(async (edge: any) => ({
+      id: edge.node.id,
+      title: edge.node.title,
+      productType: edge.node.productType,
+      variants: await loadAllVariants(edge.node.id, edge.node.variants, storeId),
+    }))
+  );
 }
 
 export const shopifySaleAPI = {
-  /**
-   * Get products with pagination
-   */
   async getProducts(params?: {
     first?: number;
     after?: string;
     query?: string;
+    storeId?: string;
   }): Promise<{
     products: ShopifyProduct[];
     pageInfo: { hasNextPage: boolean; endCursor: string | null };
   }> {
-    const { first = 50, after, query } = params || {};
-
+    const { first = 50, after, query, storeId } = params || {};
     const queryStr = `
       query getProducts($first: Int!, $after: String, $query: String) {
         products(first: $first, after: $after, query: $query) {
           edges {
             node {
-              id
-              title
-              productType
+              id title productType
               variants(first: 100) {
-                edges {
-                  node {
-                    id
-                    title
-                    sku
-                    price
-                    compareAtPrice
-                  }
-                }
+                edges { node { id title sku price compareAtPrice } }
+                pageInfo { hasNextPage endCursor }
               }
             }
           }
-          pageInfo {
-            hasNextPage
-            endCursor
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `;
+    const data = await shopifyGraphQL(queryStr, { first, after, query }, storeId);
+    return {
+      products: await mapProducts(data.products.edges, storeId),
+      pageInfo: data.products.pageInfo,
+    };
+  },
+
+  async getAllProducts(query?: string, storeId?: string): Promise<ShopifyProduct[]> {
+    const allProducts: ShopifyProduct[] = [];
+    let hasNextPage = true;
+    let after: string | null = null;
+    while (hasNextPage) {
+      const result = await this.getProducts({ first: 250, after: after || undefined, query, storeId });
+      allProducts.push(...result.products);
+      hasNextPage = result.pageInfo.hasNextPage;
+      after = result.pageInfo.endCursor;
+    }
+    return allProducts;
+  },
+
+  async getProductsByIds(productIds: string[], storeId?: string): Promise<ShopifyProduct[]> {
+    const products: ShopifyProduct[] = [];
+    const query = `
+      query getProduct($id: ID!) {
+        product(id: $id) {
+          id title productType
+          variants(first: 100) {
+            edges { node { id title sku price compareAtPrice } }
+            pageInfo { hasNextPage endCursor }
           }
         }
       }
     `;
 
-    const data = await shopifyGraphQL(queryStr, { first, after, query });
-
-    const products = data.products.edges.map((edge: any) => ({
-      id: edge.node.id,
-      title: edge.node.title,
-      productType: edge.node.productType,
-      variants: edge.node.variants.edges.map((v: any) => ({
-        id: v.node.id,
-        title: v.node.title,
-        sku: v.node.sku,
-        price: v.node.price,
-        compareAtPrice: v.node.compareAtPrice,
-      })),
-    }));
-
-    return {
-      products,
-      pageInfo: data.products.pageInfo,
-    };
-  },
-
-  /**
-   * Get all products (fetch all pages)
-   */
-  async getAllProducts(query?: string): Promise<ShopifyProduct[]> {
-    let allProducts: ShopifyProduct[] = [];
-    let hasNextPage = true;
-    let after: string | null = null;
-
-    while (hasNextPage) {
-      const result = await this.getProducts({ first: 250, after: after || undefined, query });
-      allProducts = [...allProducts, ...result.products];
-      hasNextPage = result.pageInfo.hasNextPage;
-      after = result.pageInfo.endCursor;
+    for (const productId of [...new Set(productIds)]) {
+      const data = await shopifyGraphQL(query, { id: productId }, storeId);
+      if (!data.product) continue;
+      products.push({
+        id: data.product.id,
+        title: data.product.title,
+        productType: data.product.productType,
+        variants: await loadAllVariants(data.product.id, data.product.variants, storeId),
+      });
     }
-
-    return allProducts;
+    return products;
   },
 
-  /**
-   * Get products by IDs
-   */
-  async getProductsByIds(productIds: string[]): Promise<ShopifyProduct[]> {
-    // For GraphQL, we need to fetch products one by one or use a different approach
-    // Since getAllProducts with query doesn't work well with multiple IDs,
-    // we'll fetch each product individually
-    const allProducts: ShopifyProduct[] = [];
-    
-    for (const productId of productIds) {
-      try {
-        const queryStr = `
-          query getProduct($id: ID!) {
-            product(id: $id) {
-              id
-              title
-              productType
-              variants(first: 100) {
-                edges {
-                  node {
-                    id
-                    title
-                    sku
-                    price
-                    compareAtPrice
-                  }
-                }
-              }
-            }
-          }
-        `;
-        
-        const data = await shopifyGraphQL(queryStr, { id: productId });
-        
-        if (data.product) {
-          allProducts.push({
-            id: data.product.id,
-            title: data.product.title,
-            productType: data.product.productType,
-            variants: data.product.variants.edges.map((v: any) => ({
-              id: v.node.id,
-              title: v.node.title,
-              sku: v.node.sku,
-              price: v.node.price,
-              compareAtPrice: v.node.compareAtPrice,
-            })),
-          });
-        }
-      } catch (error) {
-        console.error(`Failed to fetch product ${productId}:`, error);
-      }
-    }
-    
-    return allProducts;
-  },
-
-  /**
-   * Get products by collection
-   */
-  async getProductsByCollection(collectionId: string): Promise<ShopifyProduct[]> {
-    const queryStr = `
+  async getProductsByCollection(collectionId: string, storeId?: string): Promise<ShopifyProduct[]> {
+    const query = `
       query getCollectionProducts($id: ID!, $first: Int!, $after: String) {
         collection(id: $id) {
           products(first: $first, after: $after) {
             edges {
               node {
-                id
-                title
-                productType
+                id title productType
                 variants(first: 100) {
-                  edges {
-                    node {
-                      id
-                      title
-                      sku
-                      price
-                      compareAtPrice
-                    }
-                  }
+                  edges { node { id title sku price compareAtPrice } }
+                  pageInfo { hasNextPage endCursor }
                 }
               }
             }
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
+            pageInfo { hasNextPage endCursor }
           }
         }
       }
     `;
-
-    let allProducts: ShopifyProduct[] = [];
+    const allProducts: ShopifyProduct[] = [];
     let hasNextPage = true;
     let after: string | null = null;
-
     while (hasNextPage) {
-      const data = await shopifyGraphQL(queryStr, {
-        id: collectionId,
-        first: 250,
-        after,
-      });
-
-      const products = data.collection.products.edges.map((edge: any) => ({
-        id: edge.node.id,
-        title: edge.node.title,
-        productType: edge.node.productType,
-        variants: edge.node.variants.edges.map((v: any) => ({
-          id: v.node.id,
-          title: v.node.title,
-          sku: v.node.sku,
-          price: v.node.price,
-          compareAtPrice: v.node.compareAtPrice,
-        })),
-      }));
-
-      allProducts = [...allProducts, ...products];
+      const data = await shopifyGraphQL(query, { id: collectionId, first: 250, after }, storeId);
+      if (!data.collection) throw new Error(`Collection not found: ${collectionId}`);
+      allProducts.push(...await mapProducts(data.collection.products.edges, storeId));
       hasNextPage = data.collection.products.pageInfo.hasNextPage;
       after = data.collection.products.pageInfo.endCursor;
     }
-
     return allProducts;
   },
 
-  /**
-   * Get products by product type
-   */
-  async getProductsByType(productType: string): Promise<ShopifyProduct[]> {
-    const query = `product_type:${productType}`;
-    return this.getAllProducts(query);
+  async getProductsByType(productType: string, storeId?: string): Promise<ShopifyProduct[]> {
+    const escapedType = productType.replace(/"/g, "\\\"");
+    return this.getAllProducts(`product_type:\"${escapedType}\"`, storeId);
   },
 
-  /**
-   * Get all collections
-   */
   async getCollections(storeId?: string): Promise<ShopifyCollection[]> {
-    const queryStr = `
+    const query = `
       query getCollections($first: Int!, $after: String) {
         collections(first: $first, after: $after) {
-          edges {
-            node {
-              id
-              title
-              productsCount {
-                count
-              }
-            }
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
+          edges { node { id title productsCount { count } } }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `;
+    const collections: ShopifyCollection[] = [];
+    let hasNextPage = true;
+    let after: string | null = null;
+    while (hasNextPage) {
+      const data = await shopifyGraphQL(query, { first: 250, after }, storeId);
+      collections.push(...data.collections.edges.map((edge: any) => ({
+        id: edge.node.id,
+        title: edge.node.title,
+        productsCount: edge.node.productsCount?.count || 0,
+      })));
+      hasNextPage = data.collections.pageInfo.hasNextPage;
+      after = data.collections.pageInfo.endCursor;
+    }
+    return collections;
+  },
+
+  async getProductTypes(storeId?: string): Promise<string[]> {
+    const products = await this.getAllProducts(undefined, storeId);
+    return Array.from(new Set(products.map((product) => product.productType).filter(Boolean))).sort();
+  },
+
+  async bulkUpdateVariantPrices(
+    updates: VariantPriceUpdate[],
+    storeId?: string,
+    onProgress?: (result: VariantPriceUpdateResult) => Promise<void>
+  ): Promise<VariantPriceUpdateResult> {
+    const total: VariantPriceUpdateResult = {
+      successful: 0,
+      failed: 0,
+      successfulVariantIds: [],
+      errors: [],
+    };
+    if (updates.length === 0) return total;
+
+    const byProduct = new Map<string, VariantPriceUpdate[]>();
+    for (const update of updates) {
+      const productUpdates = byProduct.get(update.productId) || [];
+      productUpdates.push(update);
+      byProduct.set(update.productId, productUpdates);
+    }
+
+    const mutation = `
+      mutation updateVariantPrices(
+        $productId: ID!,
+        $variants: [ProductVariantsBulkInput!]!
+      ) {
+        productVariantsBulkUpdate(
+          productId: $productId,
+          variants: $variants,
+          allowPartialUpdates: true
+        ) {
+          productVariants { id }
+          userErrors { field message }
         }
       }
     `;
 
-    let allCollections: ShopifyCollection[] = [];
-    let hasNextPage = true;
-    let after: string | null = null;
-
-    while (hasNextPage) {
-      const data = await shopifyGraphQL(queryStr, { first: 250, after }, storeId);
-
-      const collections = data.collections.edges.map((edge: any) => ({
-        id: edge.node.id,
-        title: edge.node.title,
-        productsCount: edge.node.productsCount?.count || 0,
-      }));
-
-      allCollections = [...allCollections, ...collections];
-      hasNextPage = data.collections.pageInfo.hasNextPage;
-      after = data.collections.pageInfo.endCursor;
-    }
-
-    return allCollections;
-  },
-
-  /**
-   * Get all product types
-   */
-  async getProductTypes(): Promise<string[]> {
-    const products = await this.getAllProducts();
-    const types = new Set<string>();
-
-    products.forEach((product) => {
-      if (product.productType) {
-        types.add(product.productType);
-      }
-    });
-
-    return Array.from(types).sort();
-  },
-
-  /**
-   * Update variant price using REST API
-   */
-  async updateVariantPrice(
-    variantId: string,
-    price: number,
-    compareAtPrice?: number | null
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      // Extract numeric ID from GID
-      const numericId = variantId.split("/").pop();
-      
-      // Get config from database
-      const config = await getShopifyConfig();
-      if (!config.storeUrl || !config.accessToken) {
-        throw new Error("Missing Shopify credentials");
-      }
-
-      const apiVersion = config.apiVersion || "2026-07";
-      const url = `https://${config.storeUrl}/admin/api/${apiVersion}/variants/${numericId}.json`;
-      
-      const response = await fetch(url, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": config.accessToken,
-        },
-        body: JSON.stringify({
-          variant: {
-            id: numericId,
-            price: price.toString(),
-            compare_at_price: compareAtPrice !== undefined && compareAtPrice !== null 
-              ? compareAtPrice.toString() 
-              : null,
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        return {
-          success: false,
-          error: errorData.errors || `HTTP ${response.status}: ${response.statusText}`,
+    for (const [productId, productUpdates] of byProduct) {
+      for (let offset = 0; offset < productUpdates.length; offset += 100) {
+        const chunk = productUpdates.slice(offset, offset + 100);
+        const batch: VariantPriceUpdateResult = {
+          successful: 0,
+          failed: 0,
+          successfulVariantIds: [],
+          errors: [],
         };
-      }
 
-      return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  },
+        try {
+          const data = await shopifyGraphQL(mutation, {
+            productId,
+            variants: chunk.map((update) => ({
+              id: update.variantId,
+              price: update.price.toFixed(2),
+              compareAtPrice: update.compareAtPrice == null
+                ? null
+                : update.compareAtPrice.toFixed(2),
+            })),
+          }, storeId);
 
-  /**
-   * Bulk update variant prices using REST API with parallel processing
-   * OPTIMIZED: 10-20x faster than sequential processing
-   */
-  async bulkUpdateVariantPrices(
-    updates: Array<{
-      variantId: string;
-      price: number;
-      compareAtPrice?: number | null;
-    }>
-  ): Promise<{
-    successful: number;
-    failed: number;
-    errors: Array<{ variantId: string; error: string }>;
-  }> {
-    console.log(`🚀 Starting OPTIMIZED bulk update for ${updates.length} variants...`);
-    const startTime = Date.now();
-    
-    const results = {
-      successful: 0,
-      failed: 0,
-      errors: [] as Array<{ variantId: string; error: string }>,
-    };
-
-    // Process in parallel batches (5 at a time to respect rate limits)
-    // Shopify REST API limit: 2 calls/second (strict)
-    // Using 5 parallel with 3s delay = ~1.6 calls/second average (safe)
-    const PARALLEL_SIZE = 5;
-    const batches = [];
-    
-    for (let i = 0; i < updates.length; i += PARALLEL_SIZE) {
-      batches.push(updates.slice(i, i + PARALLEL_SIZE));
-    }
-
-    console.log(`📦 Processing ${batches.length} batches (${PARALLEL_SIZE} variants per batch)`);
-
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
-      console.log(`\n📦 Batch ${batchIndex + 1}/${batches.length}: ${batch.length} variants`);
-      
-      try {
-        // Process batch in parallel
-        const promises = batch.map(async (update) => {
-          try {
-            const result = await this.updateVariantPrice(
-              update.variantId,
-              update.price,
-              update.compareAtPrice
-            );
-
-            if (result.success) {
-              results.successful++;
-              console.log(`  ✓ ${update.variantId}`);
-            } else {
-              results.failed++;
-              results.errors.push({
-                variantId: update.variantId,
-                error: result.error || "Unknown error",
-              });
-              console.error(`  ✗ ${update.variantId}: ${result.error}`);
-            }
-          } catch (error: any) {
-            results.failed++;
-            results.errors.push({
-              variantId: update.variantId,
-              error: error.message || "Unknown error",
-            });
-            console.error(`  ✗ ${update.variantId}: ${error.message}`);
+          const payload = data.productVariantsBulkUpdate;
+          const successfulIds = new Set<string>(
+            (payload.productVariants || []).map((variant: any) => variant.id)
+          );
+          const errorsByIndex = new Map<number, string>();
+          for (const userError of payload.userErrors || []) {
+            const index = Number((userError.field || []).find((part: string) => /^\d+$/.test(part)));
+            if (Number.isInteger(index)) errorsByIndex.set(index, userError.message);
           }
-        });
 
-        await Promise.all(promises);
-        console.log(`  ✅ Batch ${batchIndex + 1} completed`);
-        
-      } catch (error: any) {
-        console.error(`  ❌ Batch ${batchIndex + 1} failed:`, error.message);
-        // Mark all variants in this batch as failed
-        batch.forEach((update) => {
-          results.failed++;
-          results.errors.push({
-            variantId: update.variantId,
-            error: `Batch failed: ${error.message}`,
+          chunk.forEach((update, index) => {
+            if (successfulIds.has(update.variantId)) {
+              batch.successful++;
+              batch.successfulVariantIds.push(update.variantId);
+            } else {
+              batch.failed++;
+              batch.errors.push({
+                variantId: update.variantId,
+                error: errorsByIndex.get(index) || "Shopify did not confirm this variant update",
+              });
+            }
           });
-        });
-      }
+        } catch (error: any) {
+          batch.failed = chunk.length;
+          batch.errors = chunk.map((update) => ({
+            variantId: update.variantId,
+            error: error.message || "Shopify update failed",
+          }));
+        }
 
-      // Delay between batches to respect rate limits (2 seconds)
-      // This gives us ~2.5 variants/second average (balanced speed vs rate limit)
-      if (batchIndex < batches.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        total.successful += batch.successful;
+        total.failed += batch.failed;
+        total.successfulVariantIds.push(...batch.successfulVariantIds);
+        total.errors.push(...batch.errors);
+        if (onProgress) await onProgress(batch);
       }
     }
 
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    const speed = (updates.length / parseFloat(duration)).toFixed(1);
-    
-    console.log(`\n✅ Bulk update completed in ${duration}s (${speed} variants/sec)`);
-    console.log(`   ✓ Successful: ${results.successful}`);
-    console.log(`   ✗ Failed: ${results.failed}`);
-    
-    return results;
+    return total;
   },
 };

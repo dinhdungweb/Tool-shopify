@@ -1,6 +1,7 @@
 // API Route: Get Shopify Products
 import { NextRequest, NextResponse } from "next/server";
 import { shopifySaleAPI } from "@/lib/shopify-sale-api";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -10,12 +11,13 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const searchParams = request.nextUrl.searchParams;
     const query = searchParams.get("query") || undefined;
     const first = parseInt(searchParams.get("first") || "50");
     const after = searchParams.get("after") || undefined;
 
-    const result = await shopifySaleAPI.getProducts({ first, after, query });
+    const result = await shopifySaleAPI.getProducts({ first, after, query, storeId });
 
     return NextResponse.json({
       success: true,

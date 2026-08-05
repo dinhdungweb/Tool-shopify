@@ -1,6 +1,7 @@
 // API Route: Check Campaign Conflicts
 import { NextRequest, NextResponse } from "next/server";
 import { saleService } from "@/lib/sale-service";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const { storeId } = await getStoreContextOrDefault(request);
     const { targetType, targetIds, productType, excludeCampaignId } = body;
 
     if (!targetType) {
@@ -27,7 +29,8 @@ export async function POST(request: NextRequest) {
       targetType,
       targetIds || [],
       productType,
-      excludeCampaignId
+      excludeCampaignId,
+      storeId
     );
 
     return NextResponse.json({
