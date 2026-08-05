@@ -100,7 +100,7 @@ export async function getShopifyConfig(storeId?: string) {
   const config = await getApiConfig(storeId);
   return {
     ...config.shopify,
-    apiVersion: "2024-01",
+    apiVersion: process.env.SHOPIFY_API_VERSION || "2026-01",
   };
 }
 

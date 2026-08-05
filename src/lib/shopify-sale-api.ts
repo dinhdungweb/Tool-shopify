@@ -2,18 +2,18 @@
 import { ShopifyProduct, ShopifyVariant, ShopifyCollection } from "@/types/sale";
 import { getShopifyConfig } from "./api-config";
 
-async function getGraphQLEndpoint() {
-  const config = await getShopifyConfig();
+async function getGraphQLEndpoint(storeId?: string) {
+  const config = await getShopifyConfig(storeId);
   if (!config.storeUrl || !config.accessToken) {
     throw new Error("Missing Shopify credentials");
   }
-  const apiVersion = config.apiVersion || "2024-01";
+  const apiVersion = config.apiVersion || "2026-01";
   return `https://${config.storeUrl}/admin/api/${apiVersion}/graphql.json`;
 }
 
-async function shopifyGraphQL(query: string, variables?: any) {
-  const config = await getShopifyConfig();
-  const GRAPHQL_ENDPOINT = await getGraphQLEndpoint();
+async function shopifyGraphQL(query: string, variables?: any, storeId?: string) {
+  const config = await getShopifyConfig(storeId);
+  const GRAPHQL_ENDPOINT = await getGraphQLEndpoint(storeId);
   
   const response = await fetch(GRAPHQL_ENDPOINT, {
     method: "POST",
@@ -253,7 +253,7 @@ export const shopifySaleAPI = {
   /**
    * Get all collections
    */
-  async getCollections(): Promise<ShopifyCollection[]> {
+  async getCollections(storeId?: string): Promise<ShopifyCollection[]> {
     const queryStr = `
       query getCollections($first: Int!, $after: String) {
         collections(first: $first, after: $after) {
@@ -279,7 +279,7 @@ export const shopifySaleAPI = {
     let after: string | null = null;
 
     while (hasNextPage) {
-      const data = await shopifyGraphQL(queryStr, { first: 250, after });
+      const data = await shopifyGraphQL(queryStr, { first: 250, after }, storeId);
 
       const collections = data.collections.edges.map((edge: any) => ({
         id: edge.node.id,
@@ -329,7 +329,7 @@ export const shopifySaleAPI = {
         throw new Error("Missing Shopify credentials");
       }
 
-      const apiVersion = config.apiVersion || "2024-01";
+      const apiVersion = config.apiVersion || "2026-01";
       const url = `https://${config.storeUrl}/admin/api/${apiVersion}/variants/${numericId}.json`;
       
       const response = await fetch(url, {

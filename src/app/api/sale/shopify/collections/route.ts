@@ -1,6 +1,7 @@
 // API Route: Get Shopify Collections
 import { NextRequest, NextResponse } from "next/server";
 import { shopifySaleAPI } from "@/lib/shopify-sale-api";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,8 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   try {
-    const collections = await shopifySaleAPI.getCollections();
+    const { storeId } = await getStoreContextOrDefault(request);
+    const collections = await shopifySaleAPI.getCollections(storeId);
 
     return NextResponse.json({
       success: true,
