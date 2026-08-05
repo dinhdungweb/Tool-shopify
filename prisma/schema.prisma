@@ -497,7 +497,7 @@ model SaleCampaign {
   description     String?
   status          CampaignStatus @default(DRAFT)
   discountType    DiscountType
-  discountValue   Decimal        @db.Decimal(10, 2)
+  discountValue   Decimal        @db.Decimal(18, 2)
   targetType      TargetType
   targetIds       String[]
   productType     String?
@@ -531,15 +531,15 @@ model PriceChange {
   productTitle           String
   variantTitle           String?
   sku                    String?
-  originalPrice          Decimal      @db.Decimal(10, 2)
-  salePrice              Decimal      @db.Decimal(10, 2)
-  currentPrice           Decimal      @db.Decimal(10, 2)
+  originalPrice          Decimal      @db.Decimal(18, 2)
+  salePrice              Decimal      @db.Decimal(18, 2)
+  currentPrice           Decimal      @db.Decimal(18, 2)
   applied                Boolean      @default(false)
   appliedAt              DateTime?
   reverted               Boolean      @default(false)
   revertedAt             DateTime?
   error                  String?
-  originalCompareAtPrice Decimal?     @db.Decimal(10, 2)
+  originalCompareAtPrice Decimal?     @db.Decimal(18, 2)
   campaign               SaleCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   @@unique([campaignId, variantId])
