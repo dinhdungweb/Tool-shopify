@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { SyncStatus } from "@prisma/client";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -58,11 +59,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const { dryRun = false, batchSize = 1000 } = await request.json();
+    const { storeId } = await getStoreContextOrDefault(request);
 
     // Create background job for tracking
     job = await prisma.backgroundJob.create({
       data: {
         type: "AUTO_MATCH_CUSTOMERS",
+        storeId,
         total: 0,
         status: "RUNNING",
         metadata: {
@@ -79,6 +82,7 @@ export async function POST(request: NextRequest) {
     console.log("📥 Loading unmapped customers...");
     const unmappedCustomers = await prisma.nhanhCustomer.findMany({
       where: {
+        storeId,
         mappings: { none: {} },
         phone: {
           not: null,
@@ -128,6 +132,7 @@ export async function POST(request: NextRequest) {
     console.log("🗺️ Building Shopify phone index (including phone, defaultAddressPhone, and note)...");
     const shopifyCustomers = await prisma.shopifyCustomer.findMany({
       where: {
+        storeId,
         OR: [
           {
             AND: [
@@ -237,6 +242,7 @@ export async function POST(request: NextRequest) {
           const shopifyCustomer = shopifyMatches[0];
 
           matchesToCreate.push({
+            storeId,
             nhanhCustomerId: nhanhCustomer.id,
             nhanhCustomerName: nhanhCustomer.name,
             nhanhCustomerPhone: nhanhCustomer.phone,

@@ -1,118 +1,88 @@
 import { NextRequest, NextResponse } from "next/server";
+import { SyncStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 minutes timeout
+export const maxDuration = 300;
 
-/**
- * POST /api/sync/auto-match-products
- * Auto-match products between Nhanh and Shopify using SKU
- * Ultra-optimized version using raw SQL with JOIN
- * 
- * Strategy:
- * 1. Use SQL to find matches by SKU directly in database
- * 2. Handle exact SKU matching (case-insensitive)
- * 3. Bulk insert all mappings at once
- */
+interface ProductMatchRow {
+  nhanh_id: string;
+  nhanh_name: string;
+  nhanh_sku: string | null;
+  nhanh_barcode: string | null;
+  nhanh_price: any;
+  shopify_id: string;
+  shopify_title: string;
+  shopify_sku: string | null;
+  shopify_barcode: string | null;
+}
+
+/** Auto-match products between Nhanh and Shopify by exact normalized SKU. */
 export async function POST(request: NextRequest) {
-  let job: any = null;
-  
+  let job: { id: string } | null = null;
+
   try {
     const { dryRun = false } = await request.json().catch(() => ({ dryRun: false }));
-
-    // Create background job for tracking
+    const { storeId } = await getStoreContextOrDefault(request);
     job = await prisma.backgroundJob.create({
       data: {
         type: "AUTO_MATCH_PRODUCTS",
+        storeId,
         total: 0,
         status: "RUNNING",
-        metadata: {
-          dryRun,
-        },
+        metadata: { dryRun },
       },
+      select: { id: true },
     });
 
-    console.log(`🚀 Starting SQL-optimized product auto-match (Job: ${job.id})...`);
     const startTime = Date.now();
-
-    // Step 1: Find matches using raw SQL with SKU matching
-    console.log("🔍 Finding matches with SQL JOIN on SKU...");
-    
-    const matchQuery = `
-      SELECT 
-        np.id as nhanh_id,
-        np.name as nhanh_name,
-        np.sku as nhanh_sku,
-        np.barcode as nhanh_barcode,
-        np.price as nhanh_price,
-        sp.id as shopify_id,
-        sp.title as shopify_title,
-        sp.sku as shopify_sku,
-        sp.barcode as shopify_barcode
+    const matches = await prisma.$queryRaw<ProductMatchRow[]>`
+      SELECT
+        np.id AS nhanh_id,
+        np.name AS nhanh_name,
+        np.sku AS nhanh_sku,
+        np.barcode AS nhanh_barcode,
+        np.price AS nhanh_price,
+        sp.id AS shopify_id,
+        sp.title AS shopify_title,
+        sp.sku AS shopify_sku,
+        sp.barcode AS shopify_barcode
       FROM nhanh_products np
-      LEFT JOIN product_mappings pm ON pm."nhanhProductId" = np.id
-      INNER JOIN shopify_products sp ON (
-        -- Match by SKU (case-insensitive, trimmed)
-        LOWER(TRIM(np.sku)) = LOWER(TRIM(sp.sku))
-        AND np.sku IS NOT NULL 
-        AND sp.sku IS NOT NULL
-        AND TRIM(np.sku) != ''
-        AND TRIM(sp.sku) != ''
+      LEFT JOIN product_mappings pm ON (
+        pm."nhanhProductId" = np.id
+        AND pm."storeId" = ${storeId}
       )
-      WHERE 
-        pm.id IS NULL  -- Not yet mapped
+      INNER JOIN shopify_products sp ON (
+        sp."storeId" = ${storeId}
+        AND LOWER(TRIM(np.sku)) = LOWER(TRIM(sp.sku))
+        AND np.sku IS NOT NULL
+        AND sp.sku IS NOT NULL
+        AND TRIM(np.sku) <> ''
+        AND TRIM(sp.sku) <> ''
+      )
+      WHERE np."storeId" = ${storeId}
+        AND pm.id IS NULL
     `;
 
-    const matches: any[] = await prisma.$queryRawUnsafe(matchQuery);
-    
-    console.log(`✅ Found ${matches.length} potential matches by SKU`);
+    const byNhanh = new Map<string, ProductMatchRow[]>();
+    const byShopify = new Map<string, ProductMatchRow[]>();
+    for (const match of matches) {
+      byNhanh.set(match.nhanh_id, [...(byNhanh.get(match.nhanh_id) || []), match]);
+      byShopify.set(match.shopify_id, [...(byShopify.get(match.shopify_id) || []), match]);
+    }
 
-    // Update job with total matches found
-    await prisma.backgroundJob.update({
-      where: { id: job.id },
-      data: {
-        total: matches.length,
-        metadata: {
-          dryRun,
-          potentialMatches: matches.length,
-        },
-      },
-    }).catch(() => {});
-
-    // Step 2: Filter to only exact 1-to-1 matches
-    // Group by Nhanh product ID to check for duplicates
-    const nhanhMatchMap = new Map<string, any[]>();
-    matches.forEach((match) => {
-      if (!nhanhMatchMap.has(match.nhanh_id)) {
-        nhanhMatchMap.set(match.nhanh_id, []);
-      }
-      nhanhMatchMap.get(match.nhanh_id)!.push(match);
-    });
-
-    // Group by Shopify product ID to check for duplicates
-    const shopifyMatchMap = new Map<string, any[]>();
-    matches.forEach((match) => {
-      if (!shopifyMatchMap.has(match.shopify_id)) {
-        shopifyMatchMap.set(match.shopify_id, []);
-      }
-      shopifyMatchMap.get(match.shopify_id)!.push(match);
-    });
-
-    // Only keep 1-to-1 matches (one Nhanh product matches one Shopify product)
-    const exactMatches = Array.from(nhanhMatchMap.entries())
-      .filter(([nhanhId, matches]) => {
-        if (matches.length !== 1) return false;
-        const shopifyId = matches[0].shopify_id;
-        return shopifyMatchMap.get(shopifyId)?.length === 1;
+    const exactMatches = Array.from(byNhanh.values())
+      .filter((candidates) => {
+        if (candidates.length !== 1) return false;
+        return byShopify.get(candidates[0].shopify_id)?.length === 1;
       })
-      .map(([_, matches]) => matches[0]);
+      .map((candidates) => candidates[0]);
+    const skipped = Math.max(
+      byNhanh.size - exactMatches.length,
+      byShopify.size - exactMatches.length
+    );
 
-    console.log(`✅ Filtered to ${exactMatches.length} exact 1-to-1 matches`);
-
-    const skippedNhanh = nhanhMatchMap.size - exactMatches.length;
-    const skippedShopify = shopifyMatchMap.size - exactMatches.length;
-
-    // Update job with filtered matches
     await prisma.backgroundJob.update({
       where: { id: job.id },
       data: {
@@ -122,102 +92,36 @@ export async function POST(request: NextRequest) {
           dryRun,
           potentialMatches: matches.length,
           exactMatches: exactMatches.length,
-          skipped: Math.max(skippedNhanh, skippedShopify),
+          skipped,
         },
       },
     }).catch(() => {});
 
-    const results = {
-      total: matches.length,
-      matched: exactMatches.length,
-      failed: 0,
-      skipped: Math.max(skippedNhanh, skippedShopify),
-      // Only return first 100 details to avoid huge response
-      details: exactMatches.slice(0, 100).map((match) => ({
-        nhanhProduct: {
-          id: match.nhanh_id,
-          name: match.nhanh_name,
-          sku: match.nhanh_sku,
-        },
-        shopifyProduct: {
-          id: match.shopify_id,
-          title: match.shopify_title,
-          sku: match.shopify_sku,
-        },
-        status: "matched",
-      })),
-    };
-
-    // Step 3: Bulk create mappings in batches
-    if (!dryRun && exactMatches.length > 0) {
-      console.log(`💾 Creating ${exactMatches.length} product mappings in batches...`);
-      
+    let createdCount = 0;
+    if (!dryRun) {
       const batchSize = 500;
-      const totalBatches = Math.ceil(exactMatches.length / batchSize);
-      let createdCount = 0;
-      
-      for (let i = 0; i < totalBatches; i++) {
-        const start = i * batchSize;
-        const end = Math.min(start + batchSize, exactMatches.length);
-        const batch = exactMatches.slice(start, end);
-        
-        // Build VALUES clause for this batch
-        const values = batch.map((match) => {
-          const nhanhName = (match.nhanh_name || '').replace(/'/g, "''");
-          const nhanhSku = (match.nhanh_sku || '').replace(/'/g, "''");
-          const nhanhBarcode = (match.nhanh_barcode || '').replace(/'/g, "''");
-          const shopifyTitle = (match.shopify_title || '').replace(/'/g, "''");
-          const shopifySku = (match.shopify_sku || '').replace(/'/g, "''");
-          const shopifyBarcode = (match.shopify_barcode || '').replace(/'/g, "''");
-          
-          // Note: In our system, each Shopify variant is stored as a separate product
-          // So shopifyVariantId = shopifyProductId (the variant's ID)
-          return `(
-            gen_random_uuid(),
-            NOW(),
-            NOW(),
-            '${match.nhanh_id}',
-            '${nhanhName}',
-            ${match.nhanh_sku ? `'${nhanhSku}'` : 'NULL'},
-            ${match.nhanh_barcode ? `'${nhanhBarcode}'` : 'NULL'},
-            ${match.nhanh_price || 0},
-            '${match.shopify_id}',
-            '${match.shopify_id}',
-            ${match.shopify_title ? `'${shopifyTitle}'` : 'NULL'},
-            ${match.shopify_sku ? `'${shopifySku}'` : 'NULL'},
-            ${match.shopify_barcode ? `'${shopifyBarcode}'` : 'NULL'},
-            'PENDING',
-            0
-          )`;
-        }).join(',\n');
+      for (let offset = 0; offset < exactMatches.length; offset += batchSize) {
+        const batch = exactMatches.slice(offset, offset + batchSize);
+        const created = await prisma.productMapping.createMany({
+          data: batch.map((match) => ({
+            storeId,
+            nhanhProductId: match.nhanh_id,
+            nhanhProductName: match.nhanh_name,
+            nhanhSku: match.nhanh_sku,
+            nhanhBarcode: match.nhanh_barcode,
+            nhanhPrice: match.nhanh_price || 0,
+            shopifyProductId: match.shopify_id,
+            // Each local ShopifyProduct row represents a Shopify variant.
+            shopifyVariantId: match.shopify_id,
+            shopifyProductTitle: match.shopify_title,
+            shopifySku: match.shopify_sku,
+            shopifyBarcode: match.shopify_barcode,
+            syncStatus: SyncStatus.PENDING,
+          })),
+          skipDuplicates: true,
+        });
+        createdCount += created.count;
 
-        const insertQuery = `
-          INSERT INTO product_mappings (
-            id,
-            "createdAt",
-            "updatedAt",
-            "nhanhProductId",
-            "nhanhProductName",
-            "nhanhSku",
-            "nhanhBarcode",
-            "nhanhPrice",
-            "shopifyProductId",
-            "shopifyVariantId",
-            "shopifyProductTitle",
-            "shopifySku",
-            "shopifyBarcode",
-            "syncStatus",
-            "syncAttempts"
-          )
-          VALUES ${values}
-          ON CONFLICT ("nhanhProductId") DO NOTHING
-        `;
-
-        await prisma.$executeRawUnsafe(insertQuery);
-        createdCount += batch.length;
-        console.log(`  ✅ Batch ${i + 1}/${totalBatches}: Created ${batch.length} mappings (total: ${createdCount}/${exactMatches.length})`);
-
-        // Update job progress after each batch
         await prisma.backgroundJob.update({
           where: { id: job.id },
           data: {
@@ -227,38 +131,35 @@ export async function POST(request: NextRequest) {
               potentialMatches: matches.length,
               exactMatches: exactMatches.length,
               created: createdCount,
-              batches: i + 1,
-              totalBatches,
+              batches: Math.floor(offset / batchSize) + 1,
+              totalBatches: Math.ceil(exactMatches.length / batchSize),
             },
           },
         }).catch(() => {});
       }
-      
-      console.log(`✅ Bulk insert completed: ${createdCount} product mappings created`);
     }
 
-    const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
-    const duration = durationSeconds.toFixed(2);
-    const speed = exactMatches.length > 0 ? (exactMatches.length / parseFloat(duration)).toFixed(1) : "0";
-    const durationFormatted = durationSeconds < 60 ? `${durationSeconds}s` : `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;
-    console.log(`✅ SQL product auto-match completed in ${duration}s`);
+    const durationSeconds = Math.max(1, Math.floor((Date.now() - startTime) / 1000));
+    const durationFormatted = durationSeconds < 60
+      ? `${durationSeconds}s`
+      : `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;
+    const speed = (exactMatches.length / durationSeconds).toFixed(1);
 
-    // Update job as completed
     await prisma.backgroundJob.update({
       where: { id: job.id },
       data: {
         status: "COMPLETED",
         total: exactMatches.length,
         processed: exactMatches.length,
-        successful: dryRun ? 0 : exactMatches.length,
+        successful: dryRun ? 0 : createdCount,
         failed: 0,
         completedAt: new Date(),
         metadata: {
           dryRun,
           potentialMatches: matches.length,
           exactMatches: exactMatches.length,
-          created: dryRun ? 0 : exactMatches.length,
-          skipped: Math.max(skippedNhanh, skippedShopify),
+          created: dryRun ? 0 : createdCount,
+          skipped,
           duration: durationFormatted,
           speed: `${speed} products/sec`,
           method: "SQL JOIN by SKU",
@@ -269,36 +170,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        ...results,
+        total: matches.length,
+        matched: exactMatches.length,
+        failed: 0,
+        skipped,
+        details: exactMatches.slice(0, 100).map((match) => ({
+          nhanhProduct: { id: match.nhanh_id, name: match.nhanh_name, sku: match.nhanh_sku },
+          shopifyProduct: { id: match.shopify_id, title: match.shopify_title, sku: match.shopify_sku },
+          status: "matched",
+        })),
         dryRun,
         jobId: job.id,
         duration: durationFormatted,
         method: "SQL JOIN by SKU",
         message: dryRun
-          ? `Dry run completed in ${durationFormatted}: ${results.matched} potential matches found`
-          : `Auto-match completed in ${durationFormatted}: ${results.matched} products matched by SKU`,
+          ? `Dry run completed in ${durationFormatted}: ${exactMatches.length} potential matches found`
+          : `Auto-match completed in ${durationFormatted}: ${createdCount} products matched by SKU`,
       },
     });
   } catch (error: any) {
-    console.error("Error in SQL product auto-match:", error);
-
-    // Update job as failed
     if (job?.id) {
       await prisma.backgroundJob.update({
         where: { id: job.id },
-        data: {
-          status: "FAILED",
-          error: error.message,
-          completedAt: new Date(),
-        },
+        data: { status: "FAILED", error: error.message, completedAt: new Date() },
       }).catch(() => {});
     }
-
     return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "Failed to auto-match products",
-      },
+      { success: false, error: error.message || "Failed to auto-match products" },
       { status: 500 }
     );
   }
