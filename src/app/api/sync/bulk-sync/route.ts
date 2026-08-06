@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
         try {
           const mapping = await prisma.customerMapping.findUnique({
             where: { id: mappingId },
+            include: { nhanhCustomer: { select: { nhanhId: true } } },
           });
 
           if (!mapping || mapping.storeId !== storeId || !mapping.shopifyCustomerId) {
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
 
           // Get latest total spent from Nhanh
           const totalSpent = await nhanhAPI.getCustomerTotalSpent(
-            mapping.nhanhCustomerId
+            mapping.nhanhCustomer.nhanhId
           );
 
           // SMART CHANGE DETECTION: Compare with current value - skip if no significant change OR never synced
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
           await shopifyQueue.enqueue({
             type: "graphql",
             priority: QueuePriority.BULK,
-            entityId: `customer_${mapping.nhanhCustomerId}`,
+            entityId: `customer_${mapping.nhanhCustomer.nhanhId}`,
             action: "sync_customer_total_spent",
             source: "bulk_sync",
             execute: () => shopifyAPI.syncCustomerTotalSpent(

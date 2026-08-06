@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nhanhAPI } from "@/lib/nhanh-api";
 import { prisma } from "@/lib/prisma";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes for long-running operation
@@ -12,6 +13,7 @@ export const maxDuration = 300; // 5 minutes for long-running operation
  */
 export async function POST(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     console.log("Starting to pull customers from Nhanh.vn...");
 
     let created = 0;
@@ -39,10 +41,10 @@ export async function POST(request: NextRequest) {
       // Save batch to database using bulk operations
       const upsertPromises = response.customers.map(async (customer) => {
         const result = await prisma.nhanhCustomer.upsert({
-          where: { storeId_nhanhId: { storeId: "default_store", nhanhId: customer.id } },
+          where: { storeId_nhanhId: { storeId, nhanhId: customer.id } },
           create: {
             nhanhId: customer.id,
-            storeId: "default_store",
+            storeId,
             name: customer.name,
             phone: customer.phone || null,
             email: customer.email || null,

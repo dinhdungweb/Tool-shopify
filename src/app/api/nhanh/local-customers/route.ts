@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "50");
@@ -17,7 +19,7 @@ export async function GET(request: NextRequest) {
     const syncStatus = searchParams.get("syncStatus") || "";
 
     // Build where clause for search and filter
-    const where: any = {};
+    const where: any = { storeId };
 
     // Search filter
     if (keyword) {
@@ -31,17 +33,17 @@ export async function GET(request: NextRequest) {
     // Combined mapping and sync status filter
     if (syncStatus && syncStatus !== "all") {
       where.AND = [
-        { mappings: { some: {} } },
-        { mappings: { some: { syncStatus: syncStatus.toUpperCase() } } },
-        { mappings: { some: { shopifyCustomerId: { not: null } } } },
+        { mappings: { some: { storeId } } },
+        { mappings: { some: { storeId, syncStatus: syncStatus.toUpperCase() } } },
+        { mappings: { some: { storeId, shopifyCustomerId: { not: null } } } },
       ];
     } else if (mappingStatus === "mapped") {
       where.AND = [
-        { mappings: { some: {} } },
-        { mappings: { some: { shopifyCustomerId: { not: null } } } },
+        { mappings: { some: { storeId } } },
+        { mappings: { some: { storeId, shopifyCustomerId: { not: null } } } },
       ];
     } else if (mappingStatus === "unmapped") {
-      where.mappings = { none: {} };
+      where.mappings = { none: { storeId } };
     }
 
     // Get total count
@@ -54,7 +56,7 @@ export async function GET(request: NextRequest) {
       skip: (page - 1) * limit,
       take: limit,
       include: {
-        mappings: true,
+        mappings: { where: { storeId } },
       },
     });
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const { customerIds } = await request.json();
 
     if (!customerIds || !Array.isArray(customerIds)) {
@@ -20,13 +22,31 @@ export async function POST(request: NextRequest) {
 
     const mappings = await prisma.customerMapping.findMany({
       where: {
-        nhanhCustomerId: { in: customerIds },
+        storeId,
+        nhanhCustomer: {
+          is: {
+            storeId,
+            OR: [
+              { nhanhId: { in: customerIds } },
+              { id: { in: customerIds } },
+            ],
+          },
+        },
+      },
+      include: {
+        nhanhCustomer: { select: { nhanhId: true } },
       },
     });
 
+    // The customer table is keyed by the original Nhanh ID in the browser.
+    const responseMappings = mappings.map(({ nhanhCustomer, ...mapping }) => ({
+      ...mapping,
+      nhanhCustomerId: nhanhCustomer.nhanhId,
+    }));
+
     return NextResponse.json({
       success: true,
-      data: mappings,
+      data: responseMappings,
     });
   } catch (error: any) {
     console.error("Error getting mappings by IDs:", error);

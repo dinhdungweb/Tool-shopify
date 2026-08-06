@@ -65,29 +65,51 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       nhanhCustomerId,
-      nhanhCustomerName,
-      nhanhCustomerPhone,
-      nhanhCustomerEmail,
-      nhanhTotalSpent,
       shopifyCustomerId,
       shopifyCustomerEmail,
       shopifyCustomerName,
     } = body;
 
-    if (!nhanhCustomerId || !nhanhCustomerName) {
+    if (!nhanhCustomerId) {
       return NextResponse.json(
         {
           success: false,
-          error: "nhanhCustomerId and nhanhCustomerName are required",
+          error: "nhanhCustomerId is required",
         },
         { status: 400 }
+      );
+    }
+
+    // The UI uses the original Nhanh ID, while the mapping relation stores the
+    // local NhanhCustomer primary key. Resolve either form and always persist
+    // the local key so the foreign-key relation remains valid.
+    const nhanhCustomer = await prisma.nhanhCustomer.findFirst({
+      where: {
+        storeId,
+        OR: [
+          { id: nhanhCustomerId },
+          { nhanhId: nhanhCustomerId },
+        ],
+      },
+    });
+
+    if (!nhanhCustomer) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Nhanh customer was not found in the active store. Pull customers again before creating the mapping.",
+        },
+        { status: 404 }
       );
     }
 
     // Check if mapping already exists
     const existing = await prisma.customerMapping.findUnique({
       where: {
-        storeId_nhanhCustomerId: { storeId, nhanhCustomerId },
+        storeId_nhanhCustomerId: {
+          storeId,
+          nhanhCustomerId: nhanhCustomer.id,
+        },
       },
     });
 
@@ -104,11 +126,11 @@ export async function POST(request: NextRequest) {
     const mapping = await prisma.customerMapping.create({
       data: {
         storeId,
-        nhanhCustomerId,
-        nhanhCustomerName,
-        nhanhCustomerPhone,
-        nhanhCustomerEmail,
-        nhanhTotalSpent: nhanhTotalSpent || 0,
+        nhanhCustomerId: nhanhCustomer.id,
+        nhanhCustomerName: nhanhCustomer.name,
+        nhanhCustomerPhone: nhanhCustomer.phone,
+        nhanhCustomerEmail: nhanhCustomer.email,
+        nhanhTotalSpent: nhanhCustomer.totalSpent,
         shopifyCustomerId,
         shopifyCustomerEmail,
         shopifyCustomerName,
