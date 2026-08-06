@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const { searchParams } = new URL(request.url);
     const query = searchParams.get("query");
     const limit = parseInt(searchParams.get("limit") || "20");
@@ -34,6 +36,7 @@ export async function GET(request: NextRequest) {
     // Search in multiple fields
     const customers = await prisma.shopifyCustomer.findMany({
       where: {
+        storeId,
         OR: [
           // Email search
           { email: { contains: query, mode: "insensitive" } },
@@ -51,7 +54,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: customers,
+      data: customers.map((customer) => ({
+        ...customer,
+        id: customer.shopifyId,
+      })),
     });
   } catch (error: any) {
     console.error("Error searching customers:", error);

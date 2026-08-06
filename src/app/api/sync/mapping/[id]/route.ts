@@ -83,13 +83,44 @@ export async function PATCH(
       );
     }
 
+    const shopifyCustomer = shopifyCustomerId
+      ? await prisma.shopifyCustomer.findFirst({
+          where: {
+            storeId,
+            OR: [
+              { id: shopifyCustomerId },
+              { shopifyId: shopifyCustomerId },
+            ],
+          },
+        })
+      : null;
+
+    if (shopifyCustomerId && !shopifyCustomer) {
+      return NextResponse.json(
+        { success: false, error: "Shopify customer was not found in the active store" },
+        { status: 404 }
+      );
+    }
+
     const mapping = await prisma.customerMapping.update({
       where: { id: existing.id },
       data: {
-        shopifyCustomerId,
-        shopifyCustomerEmail,
-        shopifyCustomerName,
-        syncStatus: syncStatus || (shopifyCustomerId ? SyncStatus.PENDING : SyncStatus.UNMAPPED),
+        shopifyCustomerId: shopifyCustomerId === undefined
+          ? undefined
+          : shopifyCustomer?.shopifyId || null,
+        shopifyCustomerEmail: shopifyCustomerId === undefined
+          ? shopifyCustomerEmail
+          : shopifyCustomer?.email || shopifyCustomerEmail,
+        shopifyCustomerName: shopifyCustomerId === undefined
+          ? shopifyCustomerName
+          : shopifyCustomer
+            ? `${shopifyCustomer.firstName || ""} ${shopifyCustomer.lastName || ""}`.trim()
+            : shopifyCustomerName,
+        syncStatus: syncStatus || (shopifyCustomerId === undefined
+          ? undefined
+          : shopifyCustomer
+            ? SyncStatus.PENDING
+            : SyncStatus.UNMAPPED),
       },
     });
 

@@ -103,6 +103,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const shopifyCustomer = shopifyCustomerId
+      ? await prisma.shopifyCustomer.findFirst({
+          where: {
+            storeId,
+            OR: [
+              { id: shopifyCustomerId },
+              { shopifyId: shopifyCustomerId },
+            ],
+          },
+        })
+      : null;
+
+    if (shopifyCustomerId && !shopifyCustomer) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Shopify customer was not found in the active store. Pull Shopify customers again before creating the mapping.",
+        },
+        { status: 404 }
+      );
+    }
+
     // Check if mapping already exists
     const existing = await prisma.customerMapping.findUnique({
       where: {
@@ -131,10 +153,12 @@ export async function POST(request: NextRequest) {
         nhanhCustomerPhone: nhanhCustomer.phone,
         nhanhCustomerEmail: nhanhCustomer.email,
         nhanhTotalSpent: nhanhCustomer.totalSpent,
-        shopifyCustomerId,
-        shopifyCustomerEmail,
-        shopifyCustomerName,
-        syncStatus: shopifyCustomerId ? SyncStatus.PENDING : SyncStatus.UNMAPPED,
+        shopifyCustomerId: shopifyCustomer?.shopifyId,
+        shopifyCustomerEmail: shopifyCustomer?.email || shopifyCustomerEmail,
+        shopifyCustomerName: shopifyCustomer
+          ? `${shopifyCustomer.firstName || ""} ${shopifyCustomer.lastName || ""}`.trim()
+          : shopifyCustomerName,
+        syncStatus: shopifyCustomer ? SyncStatus.PENDING : SyncStatus.UNMAPPED,
       },
     });
 

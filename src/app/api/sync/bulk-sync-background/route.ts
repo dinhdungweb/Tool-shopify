@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { shopifyAPI } from "@/lib/shopify-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
 import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
+import { resolveShopifyCustomerGid } from "@/lib/shopify-customer-id";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -93,6 +94,15 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string, forceSync
           return;
         }
 
+        const shopifyCustomerGid = await resolveShopifyCustomerGid(
+          mapping.storeId,
+          mapping.shopifyCustomerId
+        );
+
+        if (!shopifyCustomerGid) {
+          throw new Error("Mapped Shopify customer no longer exists in the active store");
+        }
+
         // Use totalSpent from database instead of calling API
         const totalSpent = Number(mapping.nhanhCustomer.totalSpent);
         const currentTotalSpent = Number(mapping.nhanhTotalSpent);
@@ -123,13 +133,14 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string, forceSync
           entityId: `customer_${mapping.nhanhCustomerId}`,
           action: "sync_customer_total_spent",
           source: "bulk_sync_background",
-          execute: () => shopifyAPI.syncCustomerTotalSpent(mapping.shopifyCustomerId!, totalSpent),
+          execute: () => shopifyAPI.syncCustomerTotalSpent(shopifyCustomerGid, totalSpent),
         });
 
         await prisma.customerMapping.update({
           where: { id: mappingId },
           data: {
             nhanhTotalSpent: totalSpent,
+            shopifyCustomerId: shopifyCustomerGid,
             syncStatus: SyncStatus.SYNCED,
             lastSyncedAt: new Date(),
             syncError: null,
@@ -144,7 +155,7 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string, forceSync
             action: SyncAction.BULK_SYNC,
             status: SyncStatus.SYNCED,
             message: `Background synced: ${currentTotalSpent} → ${totalSpent}`,
-            metadata: { previousTotalSpent: currentTotalSpent, totalSpent, shopifyCustomerId: mapping.shopifyCustomerId },
+            metadata: { previousTotalSpent: currentTotalSpent, totalSpent, shopifyCustomerId: shopifyCustomerGid },
           },
         });
 

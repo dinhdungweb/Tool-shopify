@@ -156,6 +156,7 @@ export async function POST(request: NextRequest) {
       },
       select: {
         id: true,
+        shopifyId: true,
         phone: true,
         defaultAddressPhone: true,
         note: true,
@@ -248,7 +249,7 @@ export async function POST(request: NextRequest) {
             nhanhCustomerPhone: nhanhCustomer.phone,
             nhanhCustomerEmail: nhanhCustomer.email,
             nhanhTotalSpent: nhanhCustomer.totalSpent,
-            shopifyCustomerId: shopifyCustomer.id,
+            shopifyCustomerId: shopifyCustomer.shopifyId,
             shopifyCustomerEmail: shopifyCustomer.email || null,
             shopifyCustomerName: `${shopifyCustomer.firstName || ""} ${shopifyCustomer.lastName || ""}`.trim(),
             syncStatus: SyncStatus.PENDING,

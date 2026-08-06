@@ -5,6 +5,7 @@ import { nhanhAPI } from "@/lib/nhanh-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
 import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 import { getStoreContextOrDefault } from "@/lib/store-context";
+import { resolveShopifyCustomerGid } from "@/lib/shopify-customer-id";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes for bulk operations
@@ -70,6 +71,19 @@ export async function POST(request: NextRequest) {
             };
           }
 
+          const shopifyCustomerGid = await resolveShopifyCustomerGid(
+            storeId,
+            mapping.shopifyCustomerId
+          );
+
+          if (!shopifyCustomerGid) {
+            return {
+              mappingId,
+              success: false,
+              error: "Mapped Shopify customer no longer exists in the active store",
+            };
+          }
+
           // Get latest total spent from Nhanh
           const totalSpent = await nhanhAPI.getCustomerTotalSpent(
             mapping.nhanhCustomer.nhanhId
@@ -109,7 +123,7 @@ export async function POST(request: NextRequest) {
             action: "sync_customer_total_spent",
             source: "bulk_sync",
             execute: () => shopifyAPI.syncCustomerTotalSpent(
-              mapping.shopifyCustomerId!,
+              shopifyCustomerGid,
               totalSpent
             ),
           });
@@ -119,6 +133,7 @@ export async function POST(request: NextRequest) {
             where: { id: mappingId },
             data: {
               nhanhTotalSpent: totalSpent,
+              shopifyCustomerId: shopifyCustomerGid,
               syncStatus: SyncStatus.SYNCED,
               lastSyncedAt: new Date(),
               syncError: null,
@@ -137,7 +152,7 @@ export async function POST(request: NextRequest) {
               metadata: {
                 previousTotalSpent: currentTotalSpent,
                 totalSpent,
-                shopifyCustomerId: mapping.shopifyCustomerId,
+                shopifyCustomerId: shopifyCustomerGid,
               },
             },
           });

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { shopifyAPI } from "@/lib/shopify-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
 import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
+import { resolveShopifyCustomerGid } from "@/lib/shopify-customer-id";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -90,6 +91,15 @@ async function retryFailedBackground(mappingIds: string[]) {
           return;
         }
 
+        const shopifyCustomerGid = await resolveShopifyCustomerGid(
+          mapping.storeId,
+          mapping.shopifyCustomerId
+        );
+
+        if (!shopifyCustomerGid) {
+          throw new Error("Mapped Shopify customer no longer exists in the active store");
+        }
+
         // Use totalSpent from database instead of calling API — qua queue
         const totalSpent = Number(mapping.nhanhCustomer.totalSpent);
         await shopifyQueue.enqueue({
@@ -99,7 +109,7 @@ async function retryFailedBackground(mappingIds: string[]) {
           action: "sync_customer_total_spent",
           source: "retry_failed",
           execute: () => shopifyAPI.syncCustomerTotalSpent(
-            mapping.shopifyCustomerId!,
+            shopifyCustomerGid,
             totalSpent
           ),
         });
@@ -108,6 +118,7 @@ async function retryFailedBackground(mappingIds: string[]) {
           where: { id: mappingId },
           data: {
             nhanhTotalSpent: totalSpent,
+            shopifyCustomerId: shopifyCustomerGid,
             syncStatus: SyncStatus.SYNCED,
             lastSyncedAt: new Date(),
             syncError: null,
@@ -124,7 +135,7 @@ async function retryFailedBackground(mappingIds: string[]) {
             message: `Retry successful: ${totalSpent}`,
             metadata: {
               totalSpent,
-              shopifyCustomerId: mapping.shopifyCustomerId,
+              shopifyCustomerId: shopifyCustomerGid,
               isRetry: true,
             },
           },
