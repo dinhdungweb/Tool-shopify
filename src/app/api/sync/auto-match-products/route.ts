@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
         np.sku AS nhanh_sku,
         np.barcode AS nhanh_barcode,
         np.price AS nhanh_price,
-        sp.id AS shopify_id,
+        sp."shopifyId" AS shopify_id,
         sp.title AS shopify_title,
         sp.sku AS shopify_sku,
         sp.barcode AS shopify_barcode

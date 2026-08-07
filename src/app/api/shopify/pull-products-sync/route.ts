@@ -3,11 +3,14 @@ import { prisma } from "@/lib/prisma";
 import axios from "axios";
 import { getShopifyConfig } from "@/lib/api-config";
 import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
+import { getStoreContextOrDefault } from "@/lib/store-context";
+import { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // Will continue in background
 
 export async function POST(request: NextRequest) {
+  const { storeId } = await getStoreContextOrDefault(request);
   // Get status filter from request body
   const body = await request.json().catch(() => ({}));
   const { status } = body; // "active", "draft", "archived", or undefined for all
@@ -16,6 +19,7 @@ export async function POST(request: NextRequest) {
   const job = await prisma.backgroundJob.create({
     data: {
       type: "PULL_SHOPIFY_PRODUCTS",
+      storeId,
       total: 0, // Will be updated as we fetch
       status: "RUNNING",
       metadata: {
@@ -25,7 +29,7 @@ export async function POST(request: NextRequest) {
   });
 
   // Start background process immediately
-  pullAllProductsBackground(status, job.id);
+  pullAllProductsBackground(storeId, status, job.id);
 
   return NextResponse.json({
     success: true,
@@ -34,12 +38,12 @@ export async function POST(request: NextRequest) {
   });
 }
 
-async function pullAllProductsBackground(status?: string, jobId?: string) {
+async function pullAllProductsBackground(storeId: string, status?: string, jobId?: string) {
   const statusFilter = status ? ` (status: ${status})` : "";
   console.log(`🚀 Starting background pull of Shopify products${statusFilter}...`);
 
   // Get config from database (with env fallback)
-  const config = await getShopifyConfig();
+  const config = await getShopifyConfig(storeId);
   const shopDomain = config.storeUrl || "";
   const accessToken = config.accessToken || "";
   const apiVersion = config.apiVersion || "2024-01";
@@ -59,7 +63,7 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
   try {
     // Check for existing progress
     const progress = await prisma.pullProgress.findUnique({
-      where: { id: "shopify_products" },
+      where: { storeId_type: { storeId, type: "products" } },
     });
 
     let hasNextPage = true;
@@ -188,7 +192,7 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
                 : product.title;
 
             allVariants.push({
-              id: variantId,
+              shopifyId: variantId,
               title: fullTitle,
               handle: product.handle,
               productType: product.productType,
@@ -213,19 +217,23 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
 
         // Get existing variant IDs
         const existingIds = await prisma.shopifyProduct.findMany({
-          where: { id: { in: allVariants.map(v => v.id) } },
-          select: { id: true }
+          where: {
+            storeId,
+            shopifyId: { in: allVariants.map(v => v.shopifyId) },
+          },
+          select: { shopifyId: true }
         });
 
-        const existingIdSet = new Set(existingIds.map(v => v.id));
-        const toCreate = allVariants.filter(v => !existingIdSet.has(v.id));
-        const toUpdate = allVariants.filter(v => existingIdSet.has(v.id));
+        const existingIdSet = new Set(existingIds.map(v => v.shopifyId));
+        const toCreate = allVariants.filter(v => !existingIdSet.has(v.shopifyId));
+        const toUpdate = allVariants.filter(v => existingIdSet.has(v.shopifyId));
 
         // Bulk create new variants
         if (toCreate.length > 0) {
           await prisma.shopifyProduct.createMany({
             data: toCreate.map(v => ({
               ...v,
+              storeId,
               lastPulledAt: new Date(),
             })),
             skipDuplicates: true,
@@ -241,7 +249,9 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
             await prisma.$transaction(
               batch.map(v =>
                 prisma.shopifyProduct.update({
-                  where: { id: v.id },
+                  where: {
+                    storeId_shopifyId: { storeId, shopifyId: v.shopifyId },
+                  },
                   data: {
                     ...v,
                     lastPulledAt: new Date(),
@@ -288,10 +298,9 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
 
         // Save progress after each page
         await prisma.pullProgress.upsert({
-          where: { id: "shopify_products" },
+          where: { storeId_type: { storeId, type: "products" } },
           create: {
-            id: "shopify_products",
-            storeId: "default_store",
+            storeId,
             type: "products",
             nextCursor: cursor ? cursor : undefined,
             totalPulled: totalFetched,
@@ -357,10 +366,9 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
 
         // Save progress even on error
         await prisma.pullProgress.upsert({
-          where: { id: "shopify_products" },
+          where: { storeId_type: { storeId, type: "products" } },
           create: {
-            id: "shopify_products",
-            storeId: "default_store",
+            storeId,
             type: "products",
             nextCursor: cursor ? cursor : undefined,
             totalPulled: totalFetched,
@@ -380,6 +388,27 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
       }
     }
 
+    if (fatalError) {
+      await prisma.pullProgress.upsert({
+        where: { storeId_type: { storeId, type: "products" } },
+        create: {
+          storeId,
+          type: "products",
+          nextCursor: cursor || undefined,
+          totalPulled: totalFetched,
+          lastPulledAt: new Date(),
+          isCompleted: false,
+        },
+        update: {
+          nextCursor: cursor || undefined,
+          totalPulled: totalFetched,
+          lastPulledAt: new Date(),
+          isCompleted: false,
+        },
+      });
+      return;
+    }
+
     const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
     const speed = totalFetched > 0 ? (totalFetched / durationSeconds).toFixed(1) : "0";
     const durationFormatted = durationSeconds < 60 ? `${durationSeconds}s` : `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;
@@ -394,11 +423,20 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
     console.log(`   - Duration: ${durationFormatted} (${speed} variants/sec)`);
 
     // Mark as completed
-    await prisma.pullProgress.update({
-      where: { id: "shopify_products" },
-      data: {
+    await prisma.pullProgress.upsert({
+      where: { storeId_type: { storeId, type: "products" } },
+      create: {
+        storeId,
+        type: "products",
+        totalPulled: totalFetched,
+        lastPulledAt: new Date(),
         isCompleted: true,
-        nextCursor: undefined,
+      },
+      update: {
+        isCompleted: true,
+        nextCursor: Prisma.DbNull,
+        totalPulled: totalFetched,
+        lastPulledAt: new Date(),
       },
     });
 
@@ -443,10 +481,9 @@ async function pullAllProductsBackground(status?: string, jobId?: string) {
     // Save error state
     try {
       await prisma.pullProgress.upsert({
-        where: { id: "shopify_products" },
+        where: { storeId_type: { storeId, type: "products" } },
         create: {
-          id: "shopify_products",
-          storeId: "default_store",
+          storeId,
           type: "products",
           nextCursor: cursor || undefined,
           totalPulled: totalFetched,

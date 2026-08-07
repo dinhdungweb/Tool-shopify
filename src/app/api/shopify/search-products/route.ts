@@ -1,13 +1,13 @@
 // API Route: Search Shopify Products
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { prisma } from "@/lib/prisma";
+import { getStoreContextOrDefault } from "@/lib/store-context";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
+    const { storeId } = await getStoreContextOrDefault(request);
     const body = await request.json();
     const { keyword, sku, barcode } = body;
 
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Search in local database
-    const where: any = {};
+    const where: any = { storeId };
 
     if (keyword) {
       where.OR = [
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: products.map((p) => ({
-        id: p.id,
+        id: p.shopifyId,
         title: p.title,
         handle: p.handle,
         productType: p.productType,
