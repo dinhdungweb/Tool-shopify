@@ -5,6 +5,10 @@ import { nhanhAPI } from "@/lib/nhanh-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
 import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 import { getStoreContextOrDefault } from "@/lib/store-context";
+import {
+  assertUniqueShopifyCustomerMapping,
+  resolveShopifyCustomerGid,
+} from "@/lib/shopify-customer-id";
 
 export const dynamic = "force-dynamic";
 
@@ -76,13 +80,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Find mapping for this customer
-    const mapping = await prisma.customerMapping.findUnique({
+    const mapping = await prisma.customerMapping.findFirst({
       where: {
-        storeId_nhanhCustomerId: {
-          storeId,
-          nhanhCustomerId: data.customerId.toString(),
+        storeId,
+        nhanhCustomer: {
+          is: {
+            storeId,
+            OR: [
+              { id: data.customerId.toString() },
+              { nhanhId: data.customerId.toString() },
+            ],
+          },
         },
       },
+      include: { nhanhCustomer: { select: { nhanhId: true } } },
     });
 
     if (!mapping || !mapping.shopifyCustomerId) {
@@ -137,18 +148,35 @@ export async function POST(request: NextRequest) {
       try {
         // Get latest total spent from Nhanh
         const totalSpent = await nhanhAPI.getCustomerTotalSpent(
-          mapping.nhanhCustomerId
+          mapping.nhanhCustomer.nhanhId
+        );
+
+        const shopifyCustomerGid = await resolveShopifyCustomerGid(
+          mapping.storeId,
+          mapping.shopifyCustomerId
+        );
+
+        if (!shopifyCustomerGid) {
+          throw new Error(
+            `Cannot resolve Shopify customer GID for mapping ${mapping.id} (${mapping.shopifyCustomerId})`
+          );
+        }
+
+        await assertUniqueShopifyCustomerMapping(
+          mapping.storeId,
+          shopifyCustomerGid,
+          mapping.id
         );
 
         // Update Shopify metafield — qua queue
         await shopifyQueue.enqueue({
           type: "graphql",
           priority: QueuePriority.WEBHOOK,
-          entityId: `customer_${mapping.nhanhCustomerId}`,
+          entityId: `shopify_customer_${shopifyCustomerGid}`,
           action: "sync_customer_total_spent",
           source: "legacy_webhook",
           execute: () => shopifyAPI.syncCustomerTotalSpent(
-            mapping.shopifyCustomerId!,
+            shopifyCustomerGid,
             totalSpent
           ),
         });
@@ -162,6 +190,7 @@ export async function POST(request: NextRequest) {
             lastSyncedAt: new Date(),
             syncError: null,
             syncAttempts: { increment: 1 },
+            shopifyCustomerId: shopifyCustomerGid,
           },
         });
 

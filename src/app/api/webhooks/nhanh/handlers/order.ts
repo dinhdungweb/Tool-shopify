@@ -3,6 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { nhanhAPI } from "@/lib/nhanh-api";
 import { shopifyAPI } from "@/lib/shopify-api";
 import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
+import {
+    assertUniqueShopifyCustomerMapping,
+    resolveShopifyCustomerGid,
+} from "@/lib/shopify-customer-id";
 
 /**
  * Handle order webhook from Nhanh.vn (orderAdd, orderUpdate)
@@ -64,9 +68,18 @@ export async function handleOrderWebhook(payload: any) {
         console.log(`👤 Customer ID: ${customerId}`);
 
         // Find mapping for this customer
-        const mapping = await prisma.customerMapping.findUnique({
+        const mapping = await prisma.customerMapping.findFirst({
             where: {
-                storeId_nhanhCustomerId: { storeId, nhanhCustomerId: customerId },
+                storeId,
+                nhanhCustomer: {
+                    is: {
+                        storeId,
+                        OR: [
+                            { id: customerId },
+                            { nhanhId: customerId },
+                        ],
+                    },
+                },
             },
         });
 
@@ -101,7 +114,7 @@ export async function handleOrderWebhook(payload: any) {
         // Update local DB
         try {
             await prisma.nhanhCustomer.update({
-                where: { id: customerId },
+                where: { id: mapping.nhanhCustomerId },
                 data: {
                     totalSpent,
                     lastPulledAt: new Date(),
@@ -115,14 +128,27 @@ export async function handleOrderWebhook(payload: any) {
         // Sync to Shopify — qua queue
         console.log(`🔄 Syncing to Shopify customer ${mapping.shopifyCustomerId}...`);
 
-        const shopifyGid = mapping.shopifyCustomerId.startsWith("gid://")
-            ? mapping.shopifyCustomerId
-            : `gid://shopify/Customer/${mapping.shopifyCustomerId}`;
+        const shopifyGid = await resolveShopifyCustomerGid(
+            mapping.storeId,
+            mapping.shopifyCustomerId
+        );
+
+        if (!shopifyGid) {
+            throw new Error(
+                `Cannot resolve Shopify customer GID for mapping ${mapping.id} (${mapping.shopifyCustomerId})`
+            );
+        }
+
+        await assertUniqueShopifyCustomerMapping(
+            mapping.storeId,
+            shopifyGid,
+            mapping.id
+        );
 
         await shopifyQueue.enqueue({
             type: "graphql",
             priority: QueuePriority.WEBHOOK,
-            entityId: `customer_${customerId}`,
+            entityId: `shopify_customer_${shopifyGid}`,
             action: "sync_customer_total_spent",
             source: "webhook_order",
             execute: () => shopifyAPI.syncCustomerTotalSpent(shopifyGid, totalSpent),
@@ -137,6 +163,7 @@ export async function handleOrderWebhook(payload: any) {
                 syncError: null,
                 syncAttempts: 0,
                 nhanhTotalSpent: totalSpent,
+                shopifyCustomerId: shopifyGid,
             },
         });
 
@@ -152,7 +179,7 @@ export async function handleOrderWebhook(payload: any) {
                     source: "nhanh_order_webhook",
                     event,
                     nhanhCustomerId: customerId,
-                    shopifyCustomerId: mapping.shopifyCustomerId,
+                    shopifyCustomerId: shopifyGid,
                     totalSpent,
                 },
             },
@@ -177,7 +204,7 @@ export async function handleOrderWebhook(payload: any) {
             data: {
                 event,
                 customerId,
-                shopifyCustomerId: mapping.shopifyCustomerId,
+                shopifyCustomerId: shopifyGid,
                 totalSpent,
             },
             duration: `${duration}s`,

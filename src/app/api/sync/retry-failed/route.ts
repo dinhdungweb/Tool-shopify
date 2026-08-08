@@ -3,7 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { shopifyAPI } from "@/lib/shopify-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
 import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
-import { resolveShopifyCustomerGid } from "@/lib/shopify-customer-id";
+import {
+  assertUniqueShopifyCustomerMapping,
+  resolveShopifyCustomerGid,
+} from "@/lib/shopify-customer-id";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -100,12 +103,19 @@ async function retryFailedBackground(mappingIds: string[]) {
           throw new Error("Mapped Shopify customer no longer exists in the active store");
         }
 
+
+        await assertUniqueShopifyCustomerMapping(
+          mapping.storeId,
+          shopifyCustomerGid,
+          mapping.id
+        );
+
         // Use totalSpent from database instead of calling API — qua queue
         const totalSpent = Number(mapping.nhanhCustomer.totalSpent);
         await shopifyQueue.enqueue({
           type: "graphql",
           priority: QueuePriority.BULK,
-          entityId: `customer_${mapping.id}`,
+          entityId: `shopify_customer_${shopifyCustomerGid}`,
           action: "sync_customer_total_spent",
           source: "retry_failed",
           execute: () => shopifyAPI.syncCustomerTotalSpent(

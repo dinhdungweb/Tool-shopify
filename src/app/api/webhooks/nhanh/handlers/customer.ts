@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { shopifyAPI } from "@/lib/shopify-api";
 import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
+import {
+  assertUniqueShopifyCustomerMapping,
+  resolveShopifyCustomerGid,
+} from "@/lib/shopify-customer-id";
 
 /**
  * Handle customer update webhook
@@ -43,9 +47,18 @@ export async function handleCustomerWebhook(payload: any) {
         console.log(`  💰 Customer ${nhanhCustomerId}: totalSpent = ${totalSpent}`);
 
         // Find mapping
-        const mapping = await prisma.customerMapping.findUnique({
+        const mapping = await prisma.customerMapping.findFirst({
           where: {
-            storeId_nhanhCustomerId: { storeId, nhanhCustomerId },
+            storeId,
+            nhanhCustomer: {
+              is: {
+                storeId,
+                OR: [
+                  { id: nhanhCustomerId },
+                  { nhanhId: nhanhCustomerId },
+                ],
+              },
+            },
           },
         });
 
@@ -62,7 +75,7 @@ export async function handleCustomerWebhook(payload: any) {
 
         // Update local DB
         await prisma.nhanhCustomer.update({
-          where: { id: nhanhCustomerId },
+          where: { id: mapping.nhanhCustomerId },
           data: {
             totalSpent,
             lastPulledAt: new Date(),
@@ -72,14 +85,27 @@ export async function handleCustomerWebhook(payload: any) {
         // Sync to Shopify — qua queue
         console.log(`  🔄 Syncing to Shopify customer ${mapping.shopifyCustomerId}...`);
 
-        const shopifyGid = mapping.shopifyCustomerId.startsWith("gid://")
-          ? mapping.shopifyCustomerId
-          : `gid://shopify/Customer/${mapping.shopifyCustomerId}`;
+        const shopifyGid = await resolveShopifyCustomerGid(
+          mapping.storeId,
+          mapping.shopifyCustomerId
+        );
+
+        if (!shopifyGid) {
+          throw new Error(
+            `Cannot resolve Shopify customer GID for mapping ${mapping.id} (${mapping.shopifyCustomerId})`
+          );
+        }
+
+        await assertUniqueShopifyCustomerMapping(
+          mapping.storeId,
+          shopifyGid,
+          mapping.id
+        );
 
         await shopifyQueue.enqueue({
           type: "graphql",
           priority: QueuePriority.WEBHOOK,
-          entityId: `customer_${nhanhCustomerId}`,
+          entityId: `shopify_customer_${shopifyGid}`,
           action: "sync_customer_total_spent",
           source: "webhook_customer",
           execute: () => shopifyAPI.syncCustomerTotalSpent(shopifyGid, totalSpent),
@@ -94,6 +120,7 @@ export async function handleCustomerWebhook(payload: any) {
             syncError: null,
             syncAttempts: 0,
             nhanhTotalSpent: totalSpent,
+            shopifyCustomerId: shopifyGid,
           },
         });
 
@@ -108,7 +135,7 @@ export async function handleCustomerWebhook(payload: any) {
             metadata: {
               source: "nhanh_webhook",
               nhanhCustomerId,
-              shopifyCustomerId: mapping.shopifyCustomerId,
+              shopifyCustomerId: shopifyGid,
               totalSpent,
             },
           },
@@ -117,7 +144,7 @@ export async function handleCustomerWebhook(payload: any) {
         results.synced++;
         results.details.push({
           nhanhCustomerId,
-          shopifyCustomerId: mapping.shopifyCustomerId,
+          shopifyCustomerId: shopifyGid,
           totalSpent,
           status: "synced",
         });
@@ -135,11 +162,17 @@ export async function handleCustomerWebhook(payload: any) {
 
         // Log error
         try {
-          const mapping = await prisma.customerMapping.findUnique({
+          const mapping = await prisma.customerMapping.findFirst({
             where: {
-              storeId_nhanhCustomerId: {
-                storeId,
-                nhanhCustomerId: customer.id.toString(),
+              storeId,
+              nhanhCustomer: {
+                is: {
+                  storeId,
+                  OR: [
+                    { id: customer.id.toString() },
+                    { nhanhId: customer.id.toString() },
+                  ],
+                },
               },
             },
           });

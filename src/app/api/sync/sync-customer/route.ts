@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
     await shopifyQueue.enqueue({
       type: "graphql",
       priority: QueuePriority.MANUAL,
-      entityId: `customer_${mapping.nhanhCustomer.nhanhId}`,
+      entityId: `shopify_customer_${shopifyCustomerGid}`,
       action: "sync_customer_total_spent",
       source: "sync_customer_manual",
       execute: () => shopifyAPI.syncCustomerTotalSpent(

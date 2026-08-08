@@ -208,11 +208,33 @@ export async function POST(request: NextRequest) {
 
     console.log(`✅ Indexed ${shopifyCustomers.length} Shopify customers with ${phoneMap.size} phone variations`);
 
+    // One Shopify customer can only belong to one Nhanh customer. Normalize
+    // legacy local/numeric IDs so existing mappings are also respected.
+    const shopifyIdByAlias = new Map<string, string>();
+    for (const customer of shopifyCustomers) {
+      shopifyIdByAlias.set(customer.id, customer.shopifyId);
+      shopifyIdByAlias.set(customer.shopifyId, customer.shopifyId);
+      const numericId = customer.shopifyId.match(/Customer\/(\d+)$/)?.[1];
+      if (numericId) shopifyIdByAlias.set(numericId, customer.shopifyId);
+    }
+
+    const existingShopifyMappings = await prisma.customerMapping.findMany({
+      where: { storeId, shopifyCustomerId: { not: null } },
+      select: { shopifyCustomerId: true },
+    });
+    const claimedShopifyIds = new Set(
+      existingShopifyMappings
+        .map((mapping) => mapping.shopifyCustomerId)
+        .filter((id): id is string => Boolean(id))
+        .map((id) => shopifyIdByAlias.get(id) || id)
+    );
+
     // Step 3: Match in batches
     let matched = 0;
     let skipped = 0;
     const totalBatches = Math.ceil(unmappedCustomers.length / batchSize);
     const matchesToCreate: any[] = [];
+    const pendingShopifyClaims = new Map<string, number | "conflict">();
 
     console.log(`🔍 Processing ${totalBatches} batches...`);
 
@@ -242,6 +264,26 @@ export async function POST(request: NextRequest) {
         if (shopifyMatches.length === 1) {
           const shopifyCustomer = shopifyMatches[0];
 
+          if (claimedShopifyIds.has(shopifyCustomer.shopifyId)) {
+            skipped++;
+            continue;
+          }
+
+          const pendingClaim = pendingShopifyClaims.get(shopifyCustomer.shopifyId);
+          if (pendingClaim !== undefined) {
+            // Do not arbitrarily choose between two Nhanh customers that both
+            // match the same Shopify customer.
+            if (pendingClaim !== "conflict") {
+              matchesToCreate[pendingClaim]._duplicateShopifyTarget = true;
+              matched--;
+              skipped += 2;
+              pendingShopifyClaims.set(shopifyCustomer.shopifyId, "conflict");
+            } else {
+              skipped++;
+            }
+            continue;
+          }
+
           matchesToCreate.push({
             storeId,
             nhanhCustomerId: nhanhCustomer.id,
@@ -255,20 +297,15 @@ export async function POST(request: NextRequest) {
             syncStatus: SyncStatus.PENDING,
           });
 
+          pendingShopifyClaims.set(
+            shopifyCustomer.shopifyId,
+            matchesToCreate.length - 1
+          );
+
           matched++;
         } else {
           skipped++;
         }
-      }
-
-      // Create mappings in sub-batches
-      if (!dryRun && matchesToCreate.length >= 500) {
-        await prisma.customerMapping.createMany({
-          data: matchesToCreate,
-          skipDuplicates: true,
-        });
-        console.log(`    💾 Created ${matchesToCreate.length} mappings`);
-        matchesToCreate.length = 0; // Clear array
       }
 
       // Update job progress after each batch
@@ -297,12 +334,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Create remaining mappings
-    if (!dryRun && matchesToCreate.length > 0) {
+    const uniqueMatchesToCreate = matchesToCreate
+      .filter((mapping) => !mapping._duplicateShopifyTarget)
+      .map(({ _duplicateShopifyTarget: _ignored, ...mapping }) => mapping);
+
+    if (!dryRun && uniqueMatchesToCreate.length > 0) {
       await prisma.customerMapping.createMany({
-        data: matchesToCreate,
+        data: uniqueMatchesToCreate,
         skipDuplicates: true,
       });
-      console.log(`  💾 Created ${matchesToCreate.length} mappings`);
+      console.log(`  💾 Created ${uniqueMatchesToCreate.length} mappings`);
     }
 
     const durationSeconds = Math.floor((Date.now() - startTime) / 1000);

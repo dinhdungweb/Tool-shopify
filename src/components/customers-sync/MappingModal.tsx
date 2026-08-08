@@ -90,7 +90,7 @@ export default function MappingModal({
       onMappingComplete();
     } catch (error: any) {
       console.error("Error saving mapping:", error);
-      alert("Failed to save mapping: " + error.message);
+      alert(error.message || "Không thể lưu liên kết customer");
     } finally {
       setSaving(false);
     }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { SyncStatus } from "@prisma/client";
 import { getStoreContextOrDefault } from "@/lib/store-context";
+import { findShopifyCustomerMappingConflicts } from "@/lib/shopify-customer-id";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +101,34 @@ export async function PATCH(
         { success: false, error: "Shopify customer was not found in the active store" },
         { status: 404 }
       );
+    }
+
+
+    if (shopifyCustomer) {
+      const conflicts = await findShopifyCustomerMappingConflicts(
+        storeId,
+        shopifyCustomer.shopifyId,
+        existing.id
+      );
+
+      if (conflicts.length > 0) {
+        const owner = conflicts[0];
+        const shopifyName = `${shopifyCustomer.firstName || ""} ${shopifyCustomer.lastName || ""}`.trim() || shopifyCustomer.email || shopifyCustomer.shopifyId;
+        return NextResponse.json(
+          {
+            success: false,
+            code: "SHOPIFY_CUSTOMER_ALREADY_MAPPED",
+            error: `Không thể liên kết Shopify customer "${shopifyName}" vì customer này đã được liên kết với Nhanh customer "${owner.nhanhCustomerName}" (Nhanh ID: ${owner.nhanhCustomer.nhanhId}). Hãy xóa mapping cũ trước khi liên kết lại.`,
+            details: {
+              shopifyCustomerId: shopifyCustomer.shopifyId,
+              existingMappingId: owner.id,
+              existingNhanhCustomerId: owner.nhanhCustomer.nhanhId,
+              existingNhanhCustomerName: owner.nhanhCustomerName,
+            },
+          },
+          { status: 409 }
+        );
+      }
     }
 
     const mapping = await prisma.customerMapping.update({

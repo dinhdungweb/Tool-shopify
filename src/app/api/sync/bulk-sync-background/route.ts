@@ -3,7 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { shopifyAPI } from "@/lib/shopify-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
 import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
-import { resolveShopifyCustomerGid } from "@/lib/shopify-customer-id";
+import {
+  assertUniqueShopifyCustomerMapping,
+  resolveShopifyCustomerGid,
+} from "@/lib/shopify-customer-id";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -103,6 +106,12 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string, forceSync
           throw new Error("Mapped Shopify customer no longer exists in the active store");
         }
 
+        await assertUniqueShopifyCustomerMapping(
+          mapping.storeId,
+          shopifyCustomerGid,
+          mapping.id
+        );
+
         // Use totalSpent from database instead of calling API
         const totalSpent = Number(mapping.nhanhCustomer.totalSpent);
         const currentTotalSpent = Number(mapping.nhanhTotalSpent);
@@ -130,7 +139,7 @@ async function bulkSyncBackground(mappingIds: string[], jobId: string, forceSync
         await shopifyQueue.enqueue({
           type: "graphql",
           priority: QueuePriority.BULK,
-          entityId: `customer_${mapping.nhanhCustomerId}`,
+          entityId: `shopify_customer_${shopifyCustomerGid}`,
           action: "sync_customer_total_spent",
           source: "bulk_sync_background",
           execute: () => shopifyAPI.syncCustomerTotalSpent(shopifyCustomerGid, totalSpent),

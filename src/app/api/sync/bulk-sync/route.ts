@@ -5,7 +5,10 @@ import { nhanhAPI } from "@/lib/nhanh-api";
 import { SyncStatus, SyncAction } from "@prisma/client";
 import { shopifyQueue, QueuePriority } from "@/lib/shopify-queue";
 import { getStoreContextOrDefault } from "@/lib/store-context";
-import { resolveShopifyCustomerGid } from "@/lib/shopify-customer-id";
+import {
+  assertUniqueShopifyCustomerMapping,
+  resolveShopifyCustomerGid,
+} from "@/lib/shopify-customer-id";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes for bulk operations
@@ -84,6 +87,13 @@ export async function POST(request: NextRequest) {
             };
           }
 
+
+          await assertUniqueShopifyCustomerMapping(
+            storeId,
+            shopifyCustomerGid,
+            mapping.id
+          );
+
           // Get latest total spent from Nhanh
           const totalSpent = await nhanhAPI.getCustomerTotalSpent(
             mapping.nhanhCustomer.nhanhId
@@ -119,7 +129,7 @@ export async function POST(request: NextRequest) {
           await shopifyQueue.enqueue({
             type: "graphql",
             priority: QueuePriority.BULK,
-            entityId: `customer_${mapping.nhanhCustomer.nhanhId}`,
+            entityId: `shopify_customer_${shopifyCustomerGid}`,
             action: "sync_customer_total_spent",
             source: "bulk_sync",
             execute: () => shopifyAPI.syncCustomerTotalSpent(
