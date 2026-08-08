@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getStoreContextOrDefault } from "@/lib/store-context";
+import {
+  getVietnamesePhoneSearchKey,
+  getVietnamesePhoneVariations,
+} from "@/lib/phone-utils";
+import { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -23,15 +28,24 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Normalize phone for search
-    const normalizedQuery = query.replace(/[\s\-\(\)\+]/g, "");
-    const phoneVariations = [normalizedQuery];
-    
-    if (normalizedQuery.startsWith("0")) {
-      phoneVariations.push("84" + normalizedQuery.substring(1));
-    } else if (normalizedQuery.startsWith("84")) {
-      phoneVariations.push("0" + normalizedQuery.substring(2));
-    }
+    const normalizedQuery = query.replace(/\D/g, "");
+    const phoneVariations = getVietnamesePhoneVariations(query);
+    const phoneSearchKey = getVietnamesePhoneSearchKey(query);
+    const exactPhoneVariations = [
+      ...phoneVariations,
+      ...phoneVariations.map((phone) => `+${phone}`),
+    ];
+
+    const phoneFilters: Prisma.ShopifyCustomerWhereInput[] = phoneSearchKey
+      ? [
+          { phone: { in: exactPhoneVariations } },
+          { defaultAddressPhone: { in: exactPhoneVariations } },
+          // The final 9 digits are identical in 0, 84 and +84 formats.
+          { phone: { contains: phoneSearchKey } },
+          { defaultAddressPhone: { contains: phoneSearchKey } },
+          { note: { contains: phoneSearchKey } },
+        ]
+      : [];
 
     // Search in multiple fields
     const customers = await prisma.shopifyCustomer.findMany({
@@ -40,12 +54,10 @@ export async function GET(request: NextRequest) {
         OR: [
           // Email search
           { email: { contains: query, mode: "insensitive" } },
-          // Phone search
-          { phone: { in: phoneVariations } },
-          // Default address phone search
-          { defaultAddressPhone: { in: phoneVariations } },
-          // Note search (for phone numbers)
-          { note: { contains: normalizedQuery } },
+          ...phoneFilters,
+          ...(normalizedQuery && !phoneSearchKey
+            ? [{ note: { contains: normalizedQuery } }]
+            : []),
         ],
       },
       take: limit,

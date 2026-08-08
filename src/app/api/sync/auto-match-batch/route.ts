@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { SyncStatus } from "@prisma/client";
 import { getStoreContextOrDefault } from "@/lib/store-context";
+import { getVietnamesePhoneVariations } from "@/lib/phone-utils";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -11,29 +12,6 @@ export const maxDuration = 300;
  * Batch-based auto-match for very large datasets (200k+)
  * Processes in small chunks to avoid timeouts
  */
-
-// Helper to normalize phone - handles all Vietnamese phone formats
-function normalizePhone(phone: string): string[] {
-  if (!phone) return [];
-  const cleaned = phone.replace(/[\s\-\(\)\+]/g, "");
-  const variations = new Set<string>([cleaned]);
-
-  if (cleaned.startsWith("0")) {
-    // 0794936853 -> also check 794936853, 84794936853
-    variations.add("84" + cleaned.substring(1));
-    variations.add(cleaned.substring(1)); // Remove leading 0
-  } else if (cleaned.startsWith("84")) {
-    // 84794936853 -> also check 0794936853, 794936853
-    variations.add("0" + cleaned.substring(2));
-    variations.add(cleaned.substring(2)); // Remove 84
-  } else if (cleaned.length >= 9 && cleaned.length <= 10) {
-    // 794936853 (no prefix) -> also check 0794936853, 84794936853
-    variations.add("0" + cleaned);
-    variations.add("84" + cleaned);
-  }
-
-  return Array.from(variations);
-}
 
 // Helper to extract phone numbers from note
 function extractPhonesFromNote(note: string): string[] {
@@ -48,7 +26,7 @@ function extractPhonesFromNote(note: string): string[] {
   const phones: string[] = [];
   matches.forEach(match => {
     const normalized = match.replace(/[\s\-\(\)\+\.]/g, "");
-    phones.push(...normalizePhone(normalized));
+    phones.push(...getVietnamesePhoneVariations(normalized));
   });
 
   return [...new Set(phones)]; // Remove duplicates
@@ -176,12 +154,12 @@ export async function POST(request: NextRequest) {
 
       // 1. Primary phone
       if (customer.phone) {
-        normalizePhone(customer.phone).forEach(p => phonesSet.add(p));
+        getVietnamesePhoneVariations(customer.phone).forEach(p => phonesSet.add(p));
       }
 
       // 2. Default address phone
       if (customer.defaultAddressPhone) {
-        normalizePhone(customer.defaultAddressPhone).forEach(p => phonesSet.add(p));
+        getVietnamesePhoneVariations(customer.defaultAddressPhone).forEach(p => phonesSet.add(p));
       }
 
       // 3. Extract phones from note (limit to 2000 chars for performance)
@@ -245,7 +223,7 @@ export async function POST(request: NextRequest) {
       console.log(`  📦 Batch ${batchNum}/${totalBatches} (${batch.length} customers)...`);
 
       for (const nhanhCustomer of batch) {
-        const phoneVariations = normalizePhone(nhanhCustomer.phone!);
+        const phoneVariations = getVietnamesePhoneVariations(nhanhCustomer.phone!);
         let shopifyMatches: typeof shopifyCustomers = [];
 
         for (const phoneVar of phoneVariations) {
