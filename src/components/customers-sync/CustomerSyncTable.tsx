@@ -1418,7 +1418,9 @@ export default function CustomerSyncTable() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      {mapping?.syncError ? (
+                      {mapping &&
+                      (String(mapping.syncStatus).toUpperCase() === "FAILED" ||
+                        Boolean(mapping.syncError)) ? (
                         <button
                           type="button"
                           onClick={() => setErrorDetails({ customer, mapping })}
