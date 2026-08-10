@@ -39,6 +39,10 @@ export default function CustomerSyncTable() {
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const [selectDropdownOpen, setSelectDropdownOpen] = useState(false);
+  const [errorDetails, setErrorDetails] = useState<{
+    customer: NhanhCustomer;
+    mapping: CustomerMappingData;
+  } | null>(null);
   const [customFilterModalOpen, setCustomFilterModalOpen] = useState(false);
   const [customFilterInput, setCustomFilterInput] = useState("");
   const [savedFilters, setSavedFilters] = useState<string[]>([]);
@@ -1414,9 +1418,21 @@ export default function CustomerSyncTable() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <SyncStatusBadge
-                        status={mapping?.syncStatus || SyncStatus.UNMAPPED}
-                      />
+                      {mapping?.syncStatus === SyncStatus.FAILED ? (
+                        <button
+                          type="button"
+                          onClick={() => setErrorDetails({ customer, mapping })}
+                          className="cursor-pointer rounded-full focus:outline-none focus:ring-2 focus:ring-error-300 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+                          title={mapping.syncError || "View sync error details"}
+                          aria-label={`View sync error for ${customer.name}`}
+                        >
+                          <SyncStatusBadge status={mapping.syncStatus} />
+                        </button>
+                      ) : (
+                        <SyncStatusBadge
+                          status={mapping?.syncStatus || SyncStatus.UNMAPPED}
+                        />
+                      )}
                     </TableCell>
                     <TableCell>
                       {mapping?.shopifyCustomerId ? (
@@ -1554,6 +1570,58 @@ export default function CustomerSyncTable() {
           </div>
         </div>
       )}
+
+      <Modal
+        isOpen={errorDetails !== null}
+        onClose={() => setErrorDetails(null)}
+        className="max-w-xl"
+      >
+        {errorDetails && (
+          <div className="p-6 pr-16 sm:p-8 sm:pr-20">
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+              Sync error
+            </h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {errorDetails.customer.name} (ID: {errorDetails.customer.id})
+            </p>
+
+            <div className="mt-5 rounded-lg border border-error-200 bg-error-50 p-4 dark:border-error-900/50 dark:bg-error-950/30">
+              <p className="text-xs font-medium uppercase text-error-700 dark:text-error-400">
+                Error details
+              </p>
+              <p className="mt-2 whitespace-pre-wrap break-words text-sm text-error-800 dark:text-error-300">
+                {errorDetails.mapping.syncError ||
+                  "No error details were recorded for this attempt. Check the server logs and retry the sync to capture the latest error."}
+              </p>
+            </div>
+
+            <dl className="mt-5 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-gray-500 dark:text-gray-400">Sync attempts</dt>
+                <dd className="mt-1 font-medium text-gray-800 dark:text-white/90">
+                  {errorDetails.mapping.syncAttempts}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-gray-500 dark:text-gray-400">Last updated</dt>
+                <dd className="mt-1 font-medium text-gray-800 dark:text-white/90">
+                  {new Date(errorDetails.mapping.updatedAt).toLocaleString("vi-VN")}
+                </dd>
+              </div>
+            </dl>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setErrorDetails(null)}
+                className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Mapping Modal */}
       {currentCustomer && (
